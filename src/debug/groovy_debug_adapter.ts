@@ -97,8 +97,9 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 		}
 		this.javaEvalBlocked = false;
 
+		const evalContext = dap.arguments?.context;
 		const isAssignmentLike = /[^!<>=]=[^=]/.test(expression) || expression.includes('++') || expression.includes('--');
-		if (isAssignmentLike) {
+		if (isAssignmentLike || evalContext === 'repl') {
 			dap.arguments.expression = rewriteGroovyEvaluate(expression);
 			this.sendToJava(dap);
 			return;
