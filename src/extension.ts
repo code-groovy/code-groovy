@@ -10,6 +10,7 @@ import { GspDefinitionProvider } from './gsp/gsp_definition_provider';
 import { GspResourceLinkProvider } from './gsp/gsp_resource_link_provider';
 import { TagLibIndex } from './gsp/taglib_index';
 import { registerGroovyDebug } from './debug/groovy_debug';
+import { workspaceContainsGroovy } from './groovy/workspace_groovy';
 
 let classIndex: ClassIndex | undefined;
 
@@ -53,7 +54,11 @@ export function activate(context: vscode.ExtensionContext) {
         new GspResourceLinkProvider()
       )
     );
-    void classIndex.start(context);
+    void workspaceContainsGroovy().then(hasGroovy => {
+        if (hasGroovy) {
+            void classIndex?.start(context);
+        }
+    });
 }
 
 export function deactivate() {

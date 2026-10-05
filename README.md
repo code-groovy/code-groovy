@@ -65,7 +65,7 @@ Keybindings are active only while a `.groovy` or `.gsp` editor has focus.
 
 | Setting | Default | Description |
 | --- | --- | --- |
-| `codeGroovy.debug.attachTimeoutMs` | `180000` | How long to wait for the app JVM to open a JDWP port before giving up. |
+| `codeGroovy.debug.attachTimeoutMs` | `600000` | How long to wait for Gradle bootRun and the app JVM to open a JDWP port before giving up. |
 | `codeGroovy.index.maxSourceFiles` | `0` | Maximum workspace `.groovy` / `.java` files to index when Grails module detection is **not** in use. `0` means no limit. |
 | `codeGroovy.modules` | `["domain", "web", "api"]` | Gradle submodules to index when a `settings.gradle` is found. |
 | `codeGroovy.importOrder.warnings` | `true` | Warn in **Problems** when imports are out of order (same order as **Organize imports**). Set `false` to turn off those warnings only. |
@@ -81,7 +81,7 @@ Requires the Java extensions listed under **Requirements** (installed as depende
 
 Hover and the Watch view evaluate Grails implicits as Java (`GrailsWebRequest.lookup().getParams()`, `params.id` → `.get("id")`) so they work on Groovy stack frames. `params` / `session` / `request` / `flash` are also injected at the top of Locals when available.
 
-Optional `launch.json` fields: `port`, `hostName`, `task`, `module`, `gradleArgs`, `sourcePaths`, `projectName`. `projectName` is the Java project Debugger for Java uses to evaluate expressions (auto-detected as the Gradle module, usually `web`). Source directories under `grails-app` and `src/main/groovy` are detected automatically.
+Optional `launch.json` fields: `port`, `task`, `module`, `gradleArgs`, `sourcePaths`, `projectName`, `serverUrl`, `openBrowserOnReady`. For attach, use `hostName` and `port`. `projectName` is the Java project Debugger for Java uses to evaluate expressions (auto-detected as the Gradle module, usually `web`). Source directories under `grails-app` and `src/main/groovy` are detected automatically.
 
 While a Groovy or GSP editor is focused, `Cmd`/`Ctrl`+`Shift`+`D` is bound to Organize dependences, not the Run and Debug view — use the Command Palette or rebind the key.
 

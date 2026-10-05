@@ -74,7 +74,8 @@ suite('groovy_debug_logic', () => {
 		const root = createGrailsMonorepo();
 		try {
 			const project = detectDebugProject(root);
-			const command = buildGradleDebugCommand(project);
+			const initDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-init-'));
+			const command = buildGradleDebugCommand(project, {}, initDir);
 			assert.ok(command);
 			assert.strictEqual(command!.cwd, root);
 			assert.strictEqual(command!.args[0], ':web:bootRun');
@@ -91,11 +92,12 @@ suite('groovy_debug_logic', () => {
 		const root = createGrailsMonorepo();
 		try {
 			const project = detectDebugProject(root);
+			const initDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-init-'));
 			const command = buildGradleDebugCommand(project, {
 				module: 'api',
 				task: 'bootRun',
 				gradleArgs: ['-Dgrails.env=test']
-			});
+			}, initDir);
 			assert.strictEqual(command?.args[0], ':api:bootRun');
 			assert.strictEqual(command?.args[1], '--console=plain');
 			assert.strictEqual(command?.args[2], '-I');
@@ -115,7 +117,8 @@ suite('groovy_debug_logic', () => {
 			assert.strictEqual(project.kind, 'micronaut');
 			assert.strictEqual(project.launchTask, 'run');
 			assert.strictEqual(defaultLaunchName(project.kind), 'Groovy: Launch Micronaut');
-			const command = buildGradleDebugCommand(project);
+			const initDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-init-'));
+			const command = buildGradleDebugCommand(project, {}, initDir);
 			assert.strictEqual(command?.args[0], 'run');
 			assert.strictEqual(command?.args[1], '--console=plain');
 			assert.strictEqual(command?.args[2], '-I');
@@ -155,9 +158,10 @@ suite('groovy_debug_logic', () => {
 		assert.ok(!hasGradleAppTaskStarted('> Task :web:compileGroovy\n'));
 	});
 
-	test('waits at least ten minutes for first launch JDWP', () => {
-		assert.strictEqual(gradleStartupTimeoutMs(180_000), 600_000);
+	test('uses configured attach timeout with a safe default', () => {
+		assert.strictEqual(gradleStartupTimeoutMs(180_000), 180_000);
 		assert.strictEqual(gradleStartupTimeoutMs(900_000), 900_000);
+		assert.strictEqual(gradleStartupTimeoutMs(Number.NaN), 600_000);
 	});
 
 	test('adds --debug-jvm only when explicitly enabled', () => {
@@ -170,7 +174,8 @@ suite('groovy_debug_logic', () => {
 	test('writes a Gradle init script that enables JDWP on JavaExec', () => {
 		const script = gradleJavaExecJdwpInitScript(5005);
 		assert.ok(script.includes('taskGraph.whenReady'));
-		assert.ok(script.includes('task.doFirst'));
+		assert.ok(script.includes('target.doFirst'));
+		assert.ok(script.includes('codeGroovyTargetTaskPath'));
 		assert.ok(script.includes('address=127.0.0.1:5005'));
 		assert.ok(script.includes('suspend=y'));
 	});
@@ -227,7 +232,8 @@ suite('groovy_debug_logic', () => {
 			assert.strictEqual(project.projectRoot, root);
 			assert.strictEqual(project.launchModule, 'web');
 			assert.ok(project.sourcePaths.some(item => item.includes(path.join('domain', 'grails-app'))));
-			const command = buildGradleDebugCommand(project);
+			const initDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-init-'));
+			const command = buildGradleDebugCommand(project, {}, initDir);
 			assert.strictEqual(command?.args[0], ':web:bootRun');
 			assert.strictEqual(command?.args[2], '-I');
 		} finally {

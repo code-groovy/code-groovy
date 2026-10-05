@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { detectGrailsModules, GrailsModule } from '../groovy/grails_module_detector';
 
@@ -148,7 +147,8 @@ export function collectDebugSourcePaths(workspaceRoot: string, modules: GrailsMo
 
 export function buildGradleDebugCommand(
 	project: DetectedDebugProject,
-	input: GroovyDebugInput = {}
+	input: GroovyDebugInput = {},
+	initScriptDir?: string
 ): GradleDebugCommand | undefined {
 	if (!project.gradlew) {
 		return undefined;
@@ -163,27 +163,23 @@ export function buildGradleDebugCommand(
 			: task;
 
 	const port = parseDebugPort(input.port);
-	const initFile = path.join(os.tmpdir(), `code-groovy-jdwp-${port}.gradle`);
-	try {
-		fs.writeFileSync(initFile, gradleJavaExecJdwpInitScript(port));
-	} catch {
-		const gradleArgs = input.gradleArgs || [];
-		const consolePlain = gradleArgs.some(arg => arg === '--console=plain' || arg.startsWith('--console='))
-			? []
-			: ['--console=plain'];
-		const bootDebug = bootRunDebugJvmFlags(gradleTask, gradleArgs);
-		return {
-			command: project.gradlew,
-			args: [gradleTask, ...consolePlain, ...bootDebug, ...gradleArgs],
-			cwd: project.projectRoot
-		};
-	}
-
 	const gradleArgs = input.gradleArgs || [];
 	const consolePlain = gradleArgs.some(arg => arg === '--console=plain' || arg.startsWith('--console='))
 		? []
 		: ['--console=plain'];
 	const bootDebug = bootRunDebugJvmFlags(gradleTask, gradleArgs, input.useBootRunDebugJvm);
+
+	if (!initScriptDir) {
+		throw new Error('Code Groovy debug requires an extension storage directory for the Gradle init script.');
+	}
+	fs.mkdirSync(initScriptDir, { recursive: true });
+	const initFile = path.join(initScriptDir, `code-groovy-jdwp-${port}-${process.pid}.gradle`);
+	try {
+		fs.writeFileSync(initFile, gradleJavaExecJdwpInitScript(port, gradleTask), { mode: 0o600 });
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not write Gradle JDWP init script: ${message}`);
+	}
 
 	return {
 		command: project.gradlew,
@@ -219,30 +215,21 @@ export function jdwpAgentLib(port: number = DEFAULT_DEBUG_PORT): string {
 	return `-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:${port}`;
 }
 
-export function gradleJavaExecJdwpInitScript(port: number = DEFAULT_DEBUG_PORT): string {
+export function gradleJavaExecJdwpInitScript(port: number = DEFAULT_DEBUG_PORT, gradleTaskPath = ':web:bootRun'): string {
 	const agent = jdwpAgentLib(port).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+	const taskPath = gradleTaskPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 	return `
 def codeGroovyJdwpAgent = '${agent}'
+def codeGroovyTargetTaskPath = '${taskPath}'
 
-def codeGroovyInjectJdwpDoFirst = { task ->
-  if (task.name != 'bootRun' && task.name != 'run') {
-    return
-  }
-  task.doFirst {
-    def existing = task.jvmArgs ?: []
-    if (existing.any { it.toString().contains('jdwp') }) {
-      return
-    }
-    task.jvmArgs(existing + [codeGroovyJdwpAgent])
-  }
-}
-
-allprojects { project ->
-  project.gradle.taskGraph.whenReady { graph ->
-    graph.allTasks.each { task ->
-      if (task instanceof org.gradle.api.tasks.JavaExec) {
-        codeGroovyInjectJdwpDoFirst(task)
+gradle.taskGraph.whenReady { graph ->
+  def target = graph.allTasks.find { it.path == codeGroovyTargetTaskPath }
+  if (target instanceof org.gradle.api.tasks.JavaExec) {
+    target.doFirst {
+      if ((target.jvmArgs ?: []).any { it.toString().contains('jdwp') }) {
+        return
       }
+      target.jvmArgs(codeGroovyJdwpAgent)
     }
   }
 }
@@ -348,7 +335,10 @@ export function hasGradleAppTaskStarted(output: string): boolean {
 
 /** Total time to wait for Gradle compile + bootRun JVM + JDWP (first run can be slow). */
 export function gradleStartupTimeoutMs(configuredMs: number): number {
-	return Math.max(configuredMs, 600_000);
+	if (typeof configuredMs === 'number' && Number.isFinite(configuredMs) && configuredMs > 0) {
+		return configuredMs;
+	}
+	return 600_000;
 }
 
 export function isAppRunning(output: string): boolean {

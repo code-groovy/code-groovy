@@ -30,7 +30,8 @@ import {
 
 export function registerGroovyDebug(context: vscode.ExtensionContext): void {
 	try {
-		const controller = new GroovyDebugController();
+		const initScriptDir = path.join(context.globalStorageUri.fsPath, 'gradle-jdwp-init');
+		const controller = new GroovyDebugController(initScriptDir);
 		context.subscriptions.push(
 			controller,
 			vscode.debug.registerDebugConfigurationProvider('groovy', controller),
@@ -52,9 +53,12 @@ export function registerGroovyDebug(context: vscode.ExtensionContext): void {
 }
 
 class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode.Disposable {
+	constructor(private readonly initScriptDir: string) {}
+
 	private launched: ChildProcess | undefined;
 	private launchedSessionName: string | undefined;
 	private appReadyHandled = false;
+	private appReadyInFlight: Promise<void> | undefined;
 	private appReadyOptions: { openBrowser: boolean; serverUrl?: string } = { openBrowser: true };
 	private readonly output = vscode.window.createOutputChannel('Code Groovy Debug');
 	private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -101,9 +105,26 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 		}
 
 		if (input.request === 'launch') {
-			const started = await this.launchGradle(project, input, token);
-			if (!started) {
-				return undefined;
+			const debugPort = parseDebugPort(input.port);
+			if (await isDebugPortOpen(debugPort)) {
+				const choice = await vscode.window.showWarningMessage(
+					`Port ${debugPort} is already in use (often a previous bootRun).`,
+					'Attach to existing JVM',
+					'Cancel'
+				);
+				if (choice === 'Attach to existing JVM') {
+					input.request = 'attach';
+					if (!input.name || input.name.startsWith('Groovy: Launch')) {
+						input.name = 'Groovy: Attach';
+					}
+				} else {
+					return undefined;
+				}
+			} else {
+				const started = await this.launchGradle(project, input, token);
+				if (!started) {
+					return undefined;
+				}
 			}
 		}
 
@@ -128,7 +149,10 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 	}
 
 	async startFromCommand(): Promise<void> {
-		const folder = vscode.workspace.workspaceFolders?.[0];
+		const editorFolder = vscode.window.activeTextEditor
+			? vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)
+			: undefined;
+		const folder = editorFolder ?? vscode.workspace.workspaceFolders?.[0];
 		const project = this.detectProject(folder);
 		const request = defaultRequest(project.kind, Boolean(project.gradlew));
 		await vscode.debug.startDebugging(folder, {
@@ -158,7 +182,7 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 		token?: vscode.CancellationToken
 	): Promise<boolean> {
 		const debugConfig = vscode.workspace.getConfiguration('codeGroovy');
-		const jdwpWaitMs = debugConfig.get<number>('debug.attachTimeoutMs', 180_000);
+		const jdwpWaitMs = debugConfig.get<number>('debug.attachTimeoutMs', 600_000);
 		const debugPort = parseDebugPort(input.port);
 		input.useBootRunDebugJvm = debugConfig.get<boolean>('debug.useBootRunDebugJvm', false);
 		this.appReadyHandled = false;
@@ -167,23 +191,18 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 			serverUrl: (input.serverUrl || debugConfig.get<string>('debug.serverUrl', '')).trim() || undefined
 		};
 
-		const command = buildGradleDebugCommand(project, input);
+		let command;
+		try {
+			command = buildGradleDebugCommand(project, input, this.initScriptDir);
+		} catch (error) {
+			void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+			return false;
+		}
 		if (!command) {
 			void vscode.window.showErrorMessage(
 				'No Gradle wrapper found. Start the app with JDWP and use Groovy: Attach, or open a Gradle project.'
 			);
 			return false;
-		}
-
-		if (await isDebugPortOpen(debugPort)) {
-			const choice = await vscode.window.showWarningMessage(
-				`Port ${debugPort} is already in use (often a previous bootRun). Stop that JVM or pick another port in launch.json.`,
-				'Continue anyway',
-				'Cancel'
-			);
-			if (choice !== 'Continue anyway') {
-				return false;
-			}
 		}
 
 		this.stopLaunchedProcess();
@@ -201,10 +220,11 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 				cancellable: true
 			},
 			async (progress, progressToken) => {
-				const combined = token
+				const { token: combined, dispose: disposeMerged } = token
 					? mergeCancellation(token, progressToken)
-					: progressToken;
-				return this.spawnAndWaitForJdwp(
+					: { token: progressToken, dispose: () => undefined };
+				try {
+					return await this.spawnAndWaitForJdwp(
 					command.command,
 					command.args,
 					command.cwd,
@@ -213,7 +233,10 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 					combined,
 					progress,
 					this.appReadyOptions.serverUrl
-				);
+					);
+				} finally {
+					disposeMerged();
+				}
 			}
 		);
 	}
@@ -240,7 +263,8 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 			const child = spawn(command, args, {
 				cwd,
 				env: process.env,
-				shell: process.platform === 'win32',
+				shell: false,
+				windowsHide: true,
 				// Keep attached to the Gradle client so bootRun stdout/stderr (and JDWP lines) stay visible.
 				detached: false
 			});
@@ -253,12 +277,20 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 				}
 			};
 
+			const trimBuffer = () => {
+				const max = 200_000;
+				if (buffer.length > max) {
+					buffer = buffer.slice(-max);
+				}
+			};
+
 			const finish = (ok: boolean, message?: string) => {
 				if (settled) {
 					return;
 				}
 				settled = true;
 				cancelListener.dispose();
+				trimBuffer();
 				clearTimers();
 				if (!ok) {
 					this.launchedSessionName = undefined;
@@ -267,8 +299,6 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 					if (message) {
 						void vscode.window.showErrorMessage(message);
 					}
-				} else if (configuredServerUrl) {
-					void this.handleApplicationReady(buffer, configuredServerUrl, progress);
 				}
 				resolve(ok);
 			};
@@ -321,7 +351,10 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 
 			const onChunk = (chunk: Buffer) => {
 				const text = chunk.toString('utf8');
-				buffer += text;
+				if (!settled) {
+					buffer += text;
+					trimBuffer();
+				}
 				this.output.append(text);
 				if (hasGradleAppTaskStarted(buffer)) {
 					noteAppTaskStarted();
@@ -338,7 +371,7 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 				}
 				if (!notifiedRunning && status.phase === 'running') {
 					notifiedRunning = true;
-					void this.handleApplicationReady(buffer, configuredServerUrl, progress);
+					void this.scheduleApplicationReady(buffer, configuredServerUrl, progress);
 				}
 				tryFinishOnJdwp();
 			};
@@ -354,6 +387,19 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 				}
 				void this.handleGradleProcessExit(code, debugPort, buffer, finish);
 			});
+		});
+	}
+
+	private scheduleApplicationReady(
+		buffer: string,
+		configuredServerUrl: string | undefined,
+		progress: vscode.Progress<{ message?: string }>
+	): void {
+		if (this.appReadyHandled || this.appReadyInFlight) {
+			return;
+		}
+		this.appReadyInFlight = this.handleApplicationReady(buffer, configuredServerUrl, progress).finally(() => {
+			this.appReadyInFlight = undefined;
 		});
 	}
 
@@ -631,12 +677,19 @@ function isDebugPortOpenOnHost(host: string, port: number): Promise<boolean> {
 function mergeCancellation(
 	first: vscode.CancellationToken,
 	second: vscode.CancellationToken
-): vscode.CancellationToken {
+): { token: vscode.CancellationToken; dispose: () => void } {
 	const source = new vscode.CancellationTokenSource();
-	first.onCancellationRequested(() => source.cancel());
-	second.onCancellationRequested(() => source.cancel());
+	const d1 = first.onCancellationRequested(() => source.cancel());
+	const d2 = second.onCancellationRequested(() => source.cancel());
 	if (first.isCancellationRequested || second.isCancellationRequested) {
 		source.cancel();
 	}
-	return source.token;
+	return {
+		token: source.token,
+		dispose: () => {
+			d1.dispose();
+			d2.dispose();
+			source.dispose();
+		}
+	};
 }

@@ -14,7 +14,7 @@ export function registerGroovyDebugInspection(context: vscode.ExtensionContext):
 }
 
 export function isGroovyDebugSession(session: vscode.DebugSession | undefined = vscode.debug.activeDebugSession): boolean {
-	return session?.type === 'groovy' || session?.type === 'java';
+	return session?.type === 'groovy';
 }
 
 class GroovyDebugHoverProvider implements vscode.HoverProvider {
@@ -78,7 +78,13 @@ class GroovyInlineValuesProvider implements vscode.InlineValuesProvider {
 		if (!isGroovyDebugSession()) {
 			return [];
 		}
-		return collectInlineValueSpecs(document.getText(), viewPort.start.line, viewPort.end.line).map(spec => {
+		const stoppedLine = _context.stoppedLocation?.start.line;
+		return collectInlineValueSpecs(
+			document.getText(),
+			viewPort.start.line,
+			viewPort.end.line,
+			stoppedLine
+		).map(spec => {
 			const range = new vscode.Range(spec.line, spec.start, spec.line, spec.end);
 			return new vscode.InlineValueVariableLookup(range, spec.name, true);
 		});

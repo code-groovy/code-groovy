@@ -20,7 +20,8 @@
     ],
     "icon": "groovy.png",
     "activationEvents": [
-        "onStartupFinished",
+        "workspaceContains:**/*.groovy",
+        "workspaceContains:**/grails-app/**",
         "onCommand:cgroovy.organizeImports",
         "onCommand:cgroovy.organizeDependences",
         "onCommand:cgroovy.debugApp",
@@ -95,8 +96,8 @@
                 },
                 "codeGroovy.debug.attachTimeoutMs": {
                     "type": "number",
-                    "default": 180000,
-                    "markdownDescription": "Minimum time to wait for Gradle (compile + bootRun) and the app JVM to open JDWP (default port 5005). The extension waits at least 10 minutes on first launch; raise this if large projects need longer."
+                    "default": 600000,
+                    "markdownDescription": "Time to wait for Gradle (compile + bootRun) and the app JVM to open JDWP (default port 5005). First Grails launches often need several minutes."
                 },
                 "codeGroovy.debug.useBootRunDebugJvm": {
                     "type": "boolean",
@@ -241,11 +242,6 @@
                                 ],
                                 "default": 5005,
                                 "description": "JDWP port of the app JVM (default 5005)."
-                            },
-                            "hostName": {
-                                "type": "string",
-                                "default": "localhost",
-                                "description": "Host to attach after the debug JVM starts."
                             },
                             "task": {
                                 "type": "string",

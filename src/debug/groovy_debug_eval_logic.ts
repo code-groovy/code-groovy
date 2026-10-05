@@ -190,8 +190,22 @@ export function findEvaluatableExpression(line: string, character: number): Eval
 		while (j > 0 && isSpace(line[j - 1])) {
 			j -= 1;
 		}
-		if (line[j - 1] === '.') {
+		if (line[j - 1] === '.' && (j < 2 || line[j - 2] !== '?')) {
 			j -= 1;
+			while (j > 0 && isSpace(line[j - 1])) {
+				j -= 1;
+			}
+			if (j > 0 && isIdentChar(line[j - 1])) {
+				while (j > 0 && isIdentChar(line[j - 1])) {
+					j -= 1;
+				}
+				start = j;
+				continue;
+			}
+			break;
+		}
+		if (j >= 2 && line[j - 1] === '.' && line[j - 2] === '?') {
+			j -= 2;
 			while (j > 0 && isSpace(line[j - 1])) {
 				j -= 1;
 			}
@@ -221,9 +235,18 @@ export function findEvaluatableExpression(line: string, character: number): Eval
 	return { expression, start, end };
 }
 
-export function collectInlineValueSpecs(source: string, fromLine = 0, toLine?: number): InlineValueSpec[] {
+export function collectInlineValueSpecs(
+	source: string,
+	fromLine = 0,
+	toLine?: number,
+	stoppedLine?: number
+): InlineValueSpec[] {
 	const lines = source.split(/\n/);
-	const last = toLine === undefined ? lines.length - 1 : Math.min(toLine, lines.length - 1);
+	const last = stoppedLine !== undefined
+		? Math.min(stoppedLine, lines.length - 1)
+		: toLine === undefined
+			? lines.length - 1
+			: Math.min(toLine, lines.length - 1);
 	const specs: InlineValueSpec[] = [];
 	const seen = new Set<string>();
 
@@ -234,27 +257,59 @@ export function collectInlineValueSpecs(source: string, fromLine = 0, toLine?: n
 		let match: RegExpExecArray | null;
 		while ((match = identRe.exec(masked)) !== null) {
 			const name = match[0];
+			const start = match.index;
+			const end = start + name.length;
 			if (GROOVY_KEYWORDS.has(name) || name === 'this') {
 				continue;
 			}
-			const key = `${line}:${name}`;
+			if (isPropertyAccessTarget(raw, start) || isMethodCallTarget(raw, end)) {
+				continue;
+			}
+			const key = `${line}:${start}:${name}`;
 			if (seen.has(key)) {
 				continue;
 			}
 			seen.add(key);
-			const grails = isGrailsImplicit(name);
 			specs.push({
 				line,
-				start: match.index,
-				end: match.index + name.length,
+				start,
+				end,
 				name,
-				kind: grails ? 'grails' : 'lookup',
-				evaluate: grails ? GRAILS_IMPLICIT_GETTERS[name] : name
+				kind: 'lookup',
+				evaluate: name
 			});
 		}
 	}
 
 	return specs;
+}
+
+function isPropertyAccessTarget(line: string, start: number): boolean {
+	let j = start;
+	while (j > 0 && /\s/.test(line[j - 1])) {
+		j -= 1;
+	}
+	return j > 0 && (line[j - 1] === '.' || (j >= 2 && line[j - 2] === '?' && line[j - 1] === '.'));
+}
+
+function isMethodCallTarget(line: string, end: number): boolean {
+	let j = end;
+	while (j < line.length && /\s/.test(line[j])) {
+		j += 1;
+	}
+	return j < line.length && line[j] === '(';
+}
+
+/** Property navigation only — no calls, operators, or assignment (safe for variable-tree resolve). */
+export function isPurePropertyPath(expression: string): boolean {
+	const expr = expression.trim().replace(/\s+/g, '');
+	if (!expr) {
+		return false;
+	}
+	if (/[()]/.test(expr) || /[=+\-*/%&|^!<>,]/.test(expr)) {
+		return false;
+	}
+	return /^[\w.?[\]"']+$/.test(expr);
 }
 
 export function isUsefulEvalResult(result: { result?: string; type?: string } | undefined): boolean {
@@ -288,6 +343,14 @@ export function splitPropertyPath(expression: string): string[] {
 	let buf = '';
 	for (let i = 0; i < expr.length; i++) {
 		const ch = expr[i];
+		if (ch === '?' && expr[i + 1] === '.') {
+			if (buf) {
+				parts.push(normalizePathPart(buf));
+				buf = '';
+			}
+			i += 1;
+			continue;
+		}
 		if (ch === '.') {
 			if (buf) {
 				parts.push(normalizePathPart(buf));
@@ -420,66 +483,6 @@ export interface GrailsDebugVariable {
 	type?: string;
 	variablesReference: number;
 	evaluateName: string;
-}
-
-export async function collectGrailsImplicitVariables(
-	evaluate: (expression: string) => Promise<{ result?: string; type?: string; variablesReference?: number } | undefined>
-): Promise<GrailsDebugVariable[]> {
-	const extras: GrailsDebugVariable[] = [];
-	const params = await evaluateFirst(evaluate, GRAILS_IMPLICIT_GETTERS.params);
-	if (params) {
-		extras.push(toDebugVariable('params', params));
-		for (const name of Object.keys(GRAILS_IMPLICIT_GETTERS)) {
-			if (name === 'params' || name === 'out') {
-				continue;
-			}
-			const result = await evaluateFirst(evaluate, GRAILS_IMPLICIT_GETTERS[name]);
-			if (result) {
-				extras.push(toDebugVariable(name, result));
-			}
-		}
-	}
-
-	const out = await evaluateFirst(evaluate, GRAILS_IMPLICIT_GETTERS.out);
-	if (out) {
-		extras.push(toDebugVariable('out', out));
-	}
-	return extras;
-}
-
-async function evaluateFirst(
-	evaluate: (expression: string) => Promise<{ result?: string; type?: string; variablesReference?: number } | undefined>,
-	getter: string
-): Promise<EvalSuccess | undefined> {
-	for (const expression of [getter, `this.${getter}`]) {
-		const result = await evaluate(expression);
-		if (isUsefulEvalResult(result)) {
-			return {
-				result: result!.result!,
-				type: result!.type,
-				variablesReference: result!.variablesReference,
-				evaluateName: expression
-			};
-		}
-	}
-	return undefined;
-}
-
-interface EvalSuccess {
-	result: string;
-	type?: string;
-	variablesReference?: number;
-	evaluateName: string;
-}
-
-function toDebugVariable(name: string, result: EvalSuccess): GrailsDebugVariable {
-	return {
-		name,
-		value: result.result,
-		type: result.type,
-		variablesReference: result.variablesReference || 0,
-		evaluateName: result.evaluateName
-	};
 }
 
 function rewriteProperty(out: string, kind: RewriteKind, name: string): { out: string; kind: RewriteKind } {

@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import {
-	collectGrailsImplicitVariables,
 	collectGrailsImplicitsFromTree,
 	collectInlineValueSpecs,
 	findEvaluatableExpression,
@@ -9,6 +8,7 @@ import {
 	javaBeanGetter,
 	javaEvaluateExpressions,
 	isMissingJavaProjectError,
+	isPurePropertyPath,
 	resolveVariablePath,
 	rewriteGroovyEvaluate,
 	splitPropertyPath
@@ -50,12 +50,20 @@ suite('groovy_debug_eval_logic', () => {
 		assert.strictEqual(rewriteGroovyEvaluate(span!.expression), 'getParams().get("id")');
 	});
 
-	test('collects inline specs for locals and Grails implicits', () => {
+	test('collects inline specs for locals and skips property suffix identifiers', () => {
 		const source = 'def index() {\n    def name = params.id\n    // ignore params here\n}\n';
 		const specs = collectInlineValueSpecs(source);
 		assert.ok(specs.some(spec => spec.name === 'name' && spec.kind === 'lookup'));
-		assert.ok(specs.some(spec => spec.name === 'params' && spec.kind === 'grails' && spec.evaluate === 'getParams()'));
+		assert.ok(specs.some(spec => spec.name === 'params' && spec.kind === 'lookup'));
+		assert.ok(!specs.some(spec => spec.name === 'id'));
 		assert.ok(!specs.some(spec => spec.name === 'def'));
+	});
+
+	test('isPurePropertyPath rejects calls and assignment', () => {
+		assert.ok(isPurePropertyPath('params.id'));
+		assert.ok(isPurePropertyPath('user?.name'));
+		assert.ok(!isPurePropertyPath('params.int("id")'));
+		assert.ok(!isPurePropertyPath('x = 1'));
 	});
 
 	test('java bean getter capitalises the property name', () => {
@@ -69,21 +77,6 @@ suite('groovy_debug_eval_logic', () => {
 		assert.ok(!isUsefulEvalResult(undefined));
 		assert.ok(isMissingJavaProjectError('Cannot evaluate because of java.lang.IllegalStateException: Cannot evaluate, please specify projectName in launch.json.'));
 		assert.ok(!isMissingJavaProjectError('Evaluation failed: unknown identifier'));
-	});
-
-	test('collects Grails implicits when getParams succeeds', async () => {
-		const extras = await collectGrailsImplicitVariables(async expression => {
-			if (expression === 'getParams()' || expression === 'this.getParams()') {
-				return { result: '{id=1}', type: 'GrailsParameterMap', variablesReference: 12 };
-			}
-			if (expression === 'getSession()') {
-				return { result: 'Session@2', type: 'GrailsHttpSession', variablesReference: 13 };
-			}
-			return { result: 'Evaluation failed' };
-		});
-		assert.ok(extras.some(item => item.name === 'params' && item.value === '{id=1}'));
-		assert.ok(extras.some(item => item.name === 'session'));
-		assert.ok(!extras.some(item => item.name === 'flash'));
 	});
 
 	test('splits Groovy property paths including getters and map keys', () => {
@@ -115,11 +108,6 @@ suite('groovy_debug_eval_logic', () => {
 		});
 		assert.strictEqual(resolved?.value, '1');
 		assert.ok(findNamedVariable([paramsNode], 'params'));
-	});
-
-	test('skips web implicits when getParams is missing', async () => {
-		const extras = await collectGrailsImplicitVariables(async () => ({ result: 'Evaluation failed' }));
-		assert.deepStrictEqual(extras, []);
 	});
 
 	test('builds Java evaluate candidates for Grails implicits', () => {

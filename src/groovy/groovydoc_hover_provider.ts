@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { isGroovyDebugSession } from '../debug/groovy_debug_inspect';
 import { ClassIndexStore } from './class_index_store';
 import {
-	findGroovydocForName
+	findGroovydocForName,
+	findGroovydocNearOffset
 } from './groovydoc_logic';
 
 const WORD_RE = /[A-Za-z_]\w*/;
@@ -21,12 +21,13 @@ export class GroovydocHoverProvider implements vscode.HoverProvider {
 		}
 
 		const word = document.getText(wordRange);
-		if (isGroovyDebugSession()) {
+		if (vscode.debug.activeDebugSession?.type === 'groovy') {
 			return undefined;
 		}
 		const text = document.getText();
+		const offset = document.offsetAt(position);
 
-		const local = findGroovydocForName(text, word);
+		const local = findGroovydocForName(text, word) ?? findGroovydocNearOffset(text, offset);
 
 		if (local) {
 			return toHover(local, wordRange);

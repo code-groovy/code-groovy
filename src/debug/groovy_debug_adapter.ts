@@ -4,6 +4,7 @@ import {
 	collectGrailsImplicitsFromTree,
 	DebugVariableNode,
 	isMissingJavaProjectError,
+	isPurePropertyPath,
 	isUsefulEvalResult,
 	javaEvaluateExpressions,
 	resolveVariablePath,
@@ -34,9 +35,11 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 	private localScopeRef: number | undefined;
 	private frameId: number | undefined;
 	private javaEvalBlocked = false;
-	private variablesRequestRef = new Map<number, number>();
+	private variablesRequestRef = new Map<number, { variablesReference: number; frameId: number | undefined }>();
 	private cachedRoots: DebugVariableNode[] | undefined;
 	private cachedRootsFrame: number | undefined;
+	private javaMessageChain: Promise<void> = Promise.resolve();
+	private paramsFallbackUnavailable = false;
 
 	readonly onDidSendMessage = this.output.event;
 
@@ -51,10 +54,10 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 		});
 		this.socket.on('data', (chunk: Buffer) => this.onData(chunk));
 		this.socket.on('error', () => {
-			this.rejectAll(new Error('Java debug adapter socket error'));
+			this.terminateAdapter('Java debug adapter socket error');
 		});
 		this.socket.on('close', () => {
-			this.rejectAll(new Error('Java debug adapter disconnected'));
+			this.terminateAdapter('Java debug adapter disconnected');
 		});
 	}
 
@@ -72,7 +75,10 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 			this.cachedRoots = undefined;
 		}
 		if (dap.type === 'request' && dap.command === 'variables' && typeof dap.seq === 'number') {
-			this.variablesRequestRef.set(dap.seq, dap.arguments?.variablesReference);
+			this.variablesRequestRef.set(dap.seq, {
+				variablesReference: dap.arguments?.variablesReference,
+				frameId: this.frameId
+			});
 		}
 		this.sendToJava(dap);
 	}
@@ -91,8 +97,15 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 		}
 		this.javaEvalBlocked = false;
 
+		const isAssignmentLike = /[^!<>=]=[^=]/.test(expression) || expression.includes('++') || expression.includes('--');
+		if (isAssignmentLike) {
+			dap.arguments.expression = rewriteGroovyEvaluate(expression);
+			this.sendToJava(dap);
+			return;
+		}
+
 		const parts = splitPropertyPath(expression);
-		if (parts.length && frameId !== undefined) {
+		if (isPurePropertyPath(expression) && parts.length && frameId !== undefined) {
 			try {
 				const roots = await this.loadFrameRoots(frameId);
 				const node = await resolveVariablePath(parts, roots, ref => this.loadVars(ref));
@@ -148,7 +161,7 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 	private onData(chunk: Buffer): void {
 		this.buffer = Buffer.concat([this.buffer, chunk]);
 		for (const message of this.takeMessages()) {
-			void this.onJavaMessage(message);
+			this.javaMessageChain = this.javaMessageChain.then(() => this.onJavaMessage(message));
 		}
 	}
 
@@ -195,27 +208,39 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 		}
 
 		if (message.type === 'response' && message.command === 'variables' && typeof message.request_seq === 'number') {
-			const ref = this.variablesRequestRef.get(message.request_seq);
+			const pending = this.variablesRequestRef.get(message.request_seq);
 			this.variablesRequestRef.delete(message.request_seq);
-			if (ref !== undefined && ref === this.localScopeRef && Array.isArray(message.body?.variables)) {
-				message.body.variables = await this.withGrailsImplicits(message.body.variables);
+			if (
+				pending !== undefined
+				&& pending.variablesReference === this.localScopeRef
+				&& pending.frameId === this.frameId
+				&& Array.isArray(message.body?.variables)
+			) {
+				message.body.variables = await this.withGrailsImplicits(message.body.variables, pending.frameId);
 			}
 		}
 
 		this.output.fire(message as vscode.DebugProtocolMessage);
 	}
 
-	private async withGrailsImplicits(variables: any[]): Promise<any[]> {
+	private async withGrailsImplicits(variables: any[], frameId: number | undefined): Promise<any[]> {
 		const roots = asNodes(variables);
 		this.cachedRoots = roots;
-		this.cachedRootsFrame = this.frameId;
+		this.cachedRootsFrame = frameId;
 		try {
 			const extras = await collectGrailsImplicitsFromTree(roots, ref => this.loadVars(ref));
 			let injected = extras.filter(extra => !roots.some(root => root.name === extra.name));
-			if (!injected.some(item => item.name === 'params') && this.frameId !== undefined) {
+			if (
+				!injected.some(item => item.name === 'params')
+				&& frameId !== undefined
+				&& isGrailsControllerFrame(roots)
+				&& !this.paramsFallbackUnavailable
+			) {
 				const fromEval = await this.evaluateParamsFallback();
 				if (fromEval) {
 					injected = [fromEval, ...injected];
+				} else {
+					this.paramsFallbackUnavailable = true;
 				}
 			}
 			if (!injected.length) {
@@ -339,6 +364,16 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 		}
 		this.pending.clear();
 	}
+
+	private terminateAdapter(reason: string): void {
+		this.rejectAll(new Error(reason));
+		this.output.fire({ type: 'event', event: 'terminated' } as vscode.DebugProtocolMessage);
+	}
+}
+
+function isGrailsControllerFrame(roots: DebugVariableNode[]): boolean {
+	const self = roots.find(root => root.name === 'this');
+	return Boolean(self?.value && /Controller\b/.test(self.value));
 }
 
 function asNodes(variables: any[]): DebugVariableNode[] {
