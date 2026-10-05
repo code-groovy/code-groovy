@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { GradleRunPseudoterminal } from './gradle_debug_terminal';
 import * as http from 'http';
 import * as https from 'https';
 import * as net from 'net';
@@ -55,7 +55,8 @@ export function registerGroovyDebug(context: vscode.ExtensionContext): void {
 class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode.Disposable {
 	constructor(private readonly initScriptDir: string) {}
 
-	private launched: ChildProcess | undefined;
+	private debugTerminal: vscode.Terminal | undefined;
+	private gradlePty: GradleRunPseudoterminal | undefined;
 	private launchedSessionName: string | undefined;
 	private appReadyHandled = false;
 	private appReadyInFlight: Promise<void> | undefined;
@@ -185,6 +186,7 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 		const jdwpWaitMs = debugConfig.get<number>('debug.attachTimeoutMs', 600_000);
 		const debugPort = parseDebugPort(input.port);
 		input.useBootRunDebugJvm = debugConfig.get<boolean>('debug.useBootRunDebugJvm', false);
+		input.gradleConsole = debugConfig.get<'rich' | 'plain'>('debug.gradleConsole', 'rich');
 		this.appReadyHandled = false;
 		this.appReadyOptions = {
 			openBrowser: input.openBrowserOnReady ?? debugConfig.get<boolean>('debug.openBrowserOnReady', true),
@@ -210,7 +212,6 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 		this.output.clear();
 		this.output.appendLine(`${command.command} ${command.args.join(' ')}`);
 		this.output.appendLine(`cwd: ${command.cwd}`);
-		this.output.show(true);
 		this.setDebugStatus({ phase: 'starting', message: 'Starting Gradle…' });
 
 		return vscode.window.withProgress(
@@ -260,15 +261,6 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 			let notifiedBuild = false;
 			let notifiedRunning = false;
 			const launchTimeoutMs = gradleStartupTimeoutMs(jdwpWaitMs);
-			const child = spawn(command, args, {
-				cwd,
-				env: process.env,
-				shell: false,
-				windowsHide: true,
-				// Keep attached to the Gradle client so bootRun stdout/stderr (and JDWP lines) stay visible.
-				detached: false
-			});
-			this.launched = child;
 
 			const clearTimers = () => {
 				clearTimeout(launchTimer);
@@ -299,6 +291,8 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 					if (message) {
 						void vscode.window.showErrorMessage(message);
 					}
+				} else {
+					this.debugTerminal?.show(false);
 				}
 				resolve(ok);
 			};
@@ -349,13 +343,11 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 				}
 			};
 
-			const onChunk = (chunk: Buffer) => {
-				const text = chunk.toString('utf8');
+			const onChunk = (text: string) => {
 				if (!settled) {
 					buffer += text;
 					trimBuffer();
 				}
-				this.output.append(text);
 				if (hasGradleAppTaskStarted(buffer)) {
 					noteAppTaskStarted();
 				}
@@ -376,17 +368,26 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 				tryFinishOnJdwp();
 			};
 
-			child.stdout?.on('data', onChunk);
-			child.stderr?.on('data', onChunk);
-			child.on('error', err => {
-				finish(false, `Failed to start Gradle: ${err.message}`);
+			const pty = new GradleRunPseudoterminal(
+				command,
+				args,
+				cwd,
+				onChunk,
+				code => {
+					if (settled) {
+						return;
+					}
+					void this.handleGradleProcessExit(code, debugPort, buffer, finish);
+				},
+			);
+			this.gradlePty = pty;
+			this.debugTerminal?.dispose();
+			this.debugTerminal = vscode.window.createTerminal({
+				name: 'Groovy Debug',
+				pty,
+				iconPath: new vscode.ThemeIcon('debug-alt')
 			});
-			child.on('close', code => {
-				if (settled) {
-					return;
-				}
-				void this.handleGradleProcessExit(code, debugPort, buffer, finish);
-			});
+			this.debugTerminal.show(true);
 		});
 	}
 
@@ -483,16 +484,8 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 	}
 
 	private stopLaunchedProcess(): void {
-		const child = this.launched;
-		this.launched = undefined;
-		if (!child?.pid) {
-			return;
-		}
-		if (process.platform === 'win32') {
-			spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']);
-			return;
-		}
-		child.kill('SIGTERM');
+		this.gradlePty?.killChild();
+		this.gradlePty = undefined;
 	}
 }
 

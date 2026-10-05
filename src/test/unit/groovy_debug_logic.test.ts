@@ -79,10 +79,22 @@ suite('groovy_debug_logic', () => {
 			assert.ok(command);
 			assert.strictEqual(command!.cwd, root);
 			assert.strictEqual(command!.args[0], ':web:bootRun');
-			assert.strictEqual(command!.args[1], '--console=plain');
+			assert.strictEqual(command!.args[1], '--console=rich');
 			assert.strictEqual(command!.args[2], '-I');
 			assert.ok(command!.args[3].endsWith('.gradle'));
 			assert.ok(fs.readFileSync(command!.args[3], 'utf8').includes('jdwp'));
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test('honours gradleConsole plain', () => {
+		const root = createGrailsMonorepo();
+		try {
+			const project = detectDebugProject(root);
+			const initDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-init-'));
+			const command = buildGradleDebugCommand(project, { gradleConsole: 'plain' }, initDir);
+			assert.strictEqual(command?.args[1], '--console=plain');
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
@@ -99,7 +111,7 @@ suite('groovy_debug_logic', () => {
 				gradleArgs: ['-Dgrails.env=test']
 			}, initDir);
 			assert.strictEqual(command?.args[0], ':api:bootRun');
-			assert.strictEqual(command?.args[1], '--console=plain');
+			assert.strictEqual(command?.args[1], '--console=rich');
 			assert.strictEqual(command?.args[2], '-I');
 			assert.deepStrictEqual(command?.args.slice(4), ['-Dgrails.env=test']);
 		} finally {
@@ -120,7 +132,7 @@ suite('groovy_debug_logic', () => {
 			const initDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-init-'));
 			const command = buildGradleDebugCommand(project, {}, initDir);
 			assert.strictEqual(command?.args[0], 'run');
-			assert.strictEqual(command?.args[1], '--console=plain');
+			assert.strictEqual(command?.args[1], '--console=rich');
 			assert.strictEqual(command?.args[2], '-I');
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });

@@ -22,7 +22,11 @@ export interface GroovyDebugInput {
 	/** Override app URL for readiness probe / browser (e.g. http://localhost:8080). */
 	serverUrl?: string;
 	openBrowserOnReady?: boolean;
+	/** Gradle `--console` (default rich — colored logs in the debug terminal). */
+	gradleConsole?: 'rich' | 'plain';
 }
+
+export type GradleConsoleMode = 'rich' | 'plain';
 
 export interface DetectedDebugProject {
 	kind: GroovyDebugProjectKind;
@@ -164,9 +168,10 @@ export function buildGradleDebugCommand(
 
 	const port = parseDebugPort(input.port);
 	const gradleArgs = input.gradleArgs || [];
-	const consolePlain = gradleArgs.some(arg => arg === '--console=plain' || arg.startsWith('--console='))
+	const consoleMode: GradleConsoleMode = input.gradleConsole === 'plain' ? 'plain' : 'rich';
+	const consoleFlag = gradleArgs.some(arg => arg === '--console=plain' || arg.startsWith('--console='))
 		? []
-		: ['--console=plain'];
+		: [`--console=${consoleMode}`];
 	const bootDebug = bootRunDebugJvmFlags(gradleTask, gradleArgs, input.useBootRunDebugJvm);
 
 	if (!initScriptDir) {
@@ -183,7 +188,7 @@ export function buildGradleDebugCommand(
 
 	return {
 		command: project.gradlew,
-		args: [gradleTask, ...consolePlain, ...bootDebug, '-I', initFile, ...gradleArgs],
+		args: [gradleTask, ...consoleFlag, ...bootDebug, '-I', initFile, ...gradleArgs],
 		cwd: project.projectRoot
 	};
 }

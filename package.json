@@ -114,6 +114,15 @@
                     "default": "",
                     "markdownDescription": "Optional app URL for readiness checks (e.g. `http://localhost:8080`). Leave empty to parse from Gradle output (`Grails application running at …`)."
                 },
+                "codeGroovy.debug.gradleConsole": {
+                    "type": "string",
+                    "enum": [
+                        "rich",
+                        "plain"
+                    ],
+                    "default": "rich",
+                    "markdownDescription": "Gradle `--console` mode for **Groovy Debug** terminal output. Use **rich** for ANSI colors (Grails/Spring log levels). Use **plain** if your CI-style logs break with color codes."
+                },
                 "codeGroovy.importOrder.warnings": {
                     "type": "boolean",
                     "default": true,

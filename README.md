@@ -66,6 +66,7 @@ Keybindings are active only while a `.groovy` or `.gsp` editor has focus.
 | Setting | Default | Description |
 | --- | --- | --- |
 | `codeGroovy.debug.attachTimeoutMs` | `600000` | How long to wait for Gradle bootRun and the app JVM to open a JDWP port before giving up. |
+| `codeGroovy.debug.gradleConsole` | `rich` | Gradle console mode in the **Groovy Debug** terminal (`rich` = colors, `plain` = no ANSI). |
 | `codeGroovy.index.maxSourceFiles` | `0` | Maximum workspace `.groovy` / `.java` files to index when Grails module detection is **not** in use. `0` means no limit. |
 | `codeGroovy.modules` | `["domain", "web", "api"]` | Gradle submodules to index when a `settings.gradle` is found. |
 | `codeGroovy.importOrder.warnings` | `true` | Warn in **Problems** when imports are out of order (same order as **Organize imports**). Set `false` to turn off those warnings only. |
@@ -76,7 +77,7 @@ Requires the Java extensions listed under **Requirements** (installed as depende
 
 1. Set breakpoints in `.groovy` source.
 2. Run **Debug Groovy / Grails Application** from the Command Palette, or pick **Groovy: Launch Grails** / **Groovy: Attach** in Run and Debug.
-3. **Launch** starts `./gradlew :web:bootRun` in a Grails multi-module repo (`bootRun` at the root for a single module, `run` for Micronaut/plain Gradle), injects JDWP on the app `JavaExec`, waits for `Listening for transport dt_socket`, then attaches. A progress notification and status bar follow Gradle tasks (`:web:compileGroovy` → debug port → application running).
+3. **Launch** starts `./gradlew :web:bootRun` in a Grails multi-module repo (`bootRun` at the root for a single module, `run` for Micronaut/plain Gradle), injects JDWP on the app `JavaExec`, waits for `Listening for transport dt_socket`, then attaches. Gradle output stays in the **Groovy Debug** integrated terminal (ANSI colors via `--console=rich` by default). A progress notification and status bar follow Gradle tasks (`:web:compileGroovy` → debug port → application running).
 4. **Attach** connects to a JVM you already started with JDWP (port `5005`).
 
 Hover and the Watch view evaluate Grails implicits as Java (`GrailsWebRequest.lookup().getParams()`, `params.id` → `.get("id")`) so they work on Groovy stack frames. `params` / `session` / `request` / `flash` are also injected at the top of Locals when available.
