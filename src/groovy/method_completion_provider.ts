@@ -13,7 +13,9 @@ export class MethodCompletionProvider implements vscode.CompletionItemProvider {
 		const completions = resolveMethodCompletions({
 			linePrefix,
 			documentText: document.getText(),
-			artifactIndex: this.artifactIndex
+			artifactIndex: this.artifactIndex,
+			line: position.line,
+			sourcePath: document.uri.fsPath
 		});
 
 		return completions.map((completion, index) => {

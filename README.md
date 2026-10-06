@@ -110,7 +110,7 @@ Syntax highlighting, snippets and GSP support work once Code Groovy is installed
 ## Development
 
 ```bash
-git clone https://github.com/marlon407/code-groovy.git
+git clone https://github.com/code-groovy/code-groovy.git
 cd code-groovy
 npm install
 npm run compile        # or: npm run watch
@@ -126,9 +126,9 @@ npx vsce package       # build a .vsix
 
 ## Contributing
 
-This is an open source project open to anyone, and contributions are extremely welcome.
+This is an open source project open to anyone, and contributions are extremely welcome. Read the [contributing guide](CONTRIBUTING.md) to set up the project and open your first pull request.
 
-Report any problems you face on the [issue tracker](https://github.com/marlon407/code-groovy/issues).
+Report any problems you face on the [issue tracker](https://github.com/code-groovy/code-groovy/issues), and ask questions in [Discussions](https://github.com/code-groovy/code-groovy/discussions).
 
 ## License
 

@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in Code Groovy is not working as expected.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a bug. A minimal snippet that reproduces the problem is the fastest path to a fix.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Syntax highlighting
+        - Go to Definition / navigation
+        - Auto-import / organize imports
+        - IntelliSense / completions
+        - GSP / TagLibs
+        - Workspace indexing
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Code to reproduce
+      description: A minimal Groovy or GSP snippet, and the steps to trigger the problem.
+      render: groovy
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: Code Groovy version
+      placeholder: "0.2.2"
+    validations:
+      required: true
+  - type: input
+    id: editor
+    attributes:
+      label: Editor and version
+      placeholder: "VS Code 1.104 / Cursor 1.6"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / macOS 15 / Windows 11"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output from the "Code Groovy Index" output channel, if any.
+      render: text

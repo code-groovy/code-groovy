@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
+import { isGroovyKeyword } from './groovy_keywords';
 import {
 	collectLocalRenameEdits,
-	isGroovyKeyword,
 	isValidIdentifier,
 	prepareLocalRename
 } from './rename_logic';

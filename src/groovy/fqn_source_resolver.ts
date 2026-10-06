@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { simpleNameFromFqn } from './class_index_store';
+import { packageNameFromFqn, simpleNameFromFqn } from './class_index_store';
+import { escapeRegExp } from './text_scan_logic';
 
 const GRAILS_SOURCE_ROOTS = [
 	'src/main/groovy',
@@ -19,7 +20,7 @@ const MODULE_NAMES = ['domain', 'web', 'api', 'billing', 'core'];
  */
 export function findGrailsSourceForFqn(fqn: string, workspaceRoot: string): string | undefined {
 	const simpleName = simpleNameFromFqn(fqn);
-	const packageName = fqn.includes('.') ? fqn.slice(0, fqn.lastIndexOf('.')) : '';
+	const packageName = packageNameFromFqn(fqn);
 	const packagePath = packageName.replace(/\./g, '/');
 	const fileNames = [`${simpleName}.groovy`, `${simpleName}.java`];
 
@@ -81,12 +82,8 @@ function matchesPackage(filePath: string, packageName: string): boolean {
 		const bytesRead = fs.readSync(fd, buffer, 0, 512, 0);
 		fs.closeSync(fd);
 		const head = buffer.toString('utf8', 0, bytesRead);
-		return new RegExp(`^package\\s+${escapeRegex(packageName)}\\b`, 'm').test(head);
+		return new RegExp(`^package\\s+${escapeRegExp(packageName)}\\b`, 'm').test(head);
 	} catch {
 		return false;
 	}
-}
-
-function escapeRegex(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

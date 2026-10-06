@@ -19,6 +19,11 @@ export function simpleNameFromFqn(fqn: string): string {
 	return idx >= 0 ? fqn.slice(idx + 1) : fqn;
 }
 
+export function packageNameFromFqn(fqn: string): string {
+	const idx = fqn.lastIndexOf('.');
+	return idx >= 0 ? fqn.slice(0, idx) : '';
+}
+
 export function indexSourceText(text: string, sourcePath?: string): IndexedType[] {
 	return parseTypesFromSource(text, sourcePath).map(type => ({
 		simpleName: type.simpleName,
@@ -55,6 +60,24 @@ export class ClassIndexStore {
 			this.bySimpleName.set(type.simpleName, list);
 			this.byFqn.set(type.fqn, type);
 			this.count += 1;
+		}
+	}
+
+	remove(types: IndexedType[]): void {
+		for (const type of types) {
+			const list = this.bySimpleName.get(type.simpleName);
+			const index = list?.findIndex(existing => existing.fqn === type.fqn && existing.sourcePath === type.sourcePath) ?? -1;
+			if (!list || index < 0) {
+				continue;
+			}
+			list.splice(index, 1);
+			if (list.length === 0) {
+				this.bySimpleName.delete(type.simpleName);
+			}
+			if (this.byFqn.get(type.fqn)?.sourcePath === type.sourcePath) {
+				this.byFqn.delete(type.fqn);
+			}
+			this.count -= 1;
 		}
 	}
 

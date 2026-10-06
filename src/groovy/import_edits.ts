@@ -1,3 +1,4 @@
+import { packageNameFromFqn } from './class_index_store';
 import { listExistingImports, parsePackageName } from './class_parser';
 import { compareImportLines } from './import_order_logic';
 
@@ -17,7 +18,7 @@ export interface ImportInsertion {
  */
 export function planImportInsertion(documentText: string, fqn: string): ImportInsertion {
 	const packageName = parsePackageName(documentText);
-	const typePackage = fqn.includes('.') ? fqn.slice(0, fqn.lastIndexOf('.')) : '';
+	const typePackage = packageNameFromFqn(fqn);
 
 	if (typePackage && typePackage === packageName) {
 		return { offset: 0, text: '', needed: false };

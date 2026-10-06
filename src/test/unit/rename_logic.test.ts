@@ -74,3 +74,10 @@ suite('rename_logic', () => {
 		assert.strictEqual(text.slice(range!.start, range!.end), 'widget');
 	});
 });
+
+suite('collectLocalRenameEdits — strings the shared scanner understands', () => {
+	test('renames inside GString interpolation but not inside slashy or dollar-slashy strings', () => {
+		const text = 'def total = 1\ndef a = "${total}"\ndef b = ~/total/\ndef c = $/total/$\nprintln total';
+		assert.strictEqual(applyLocalRename(text, 'total', 'sum'), 'def sum = 1\ndef a = "${sum}"\ndef b = ~/total/\ndef c = $/total/$\nprintln sum');
+	});
+});

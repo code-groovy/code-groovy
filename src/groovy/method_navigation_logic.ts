@@ -1,33 +1,12 @@
-const MAX_HIERARCHY_DEPTH = 12;
+import { analyzeDocument } from './call_site_extractor';
+import { packageNameFromFqn, simpleNameFromFqn } from './class_index_store';
+import { importedTypeName, MAX_HIERARCHY_DEPTH, parseImports, parsePackageName, wildcardImportPackages } from './class_parser';
+import { ParsedDocumentSymbols } from './symbol_parser';
 
 export interface MethodLocation {
 	filePath: string;
 	line: number;
 	column: number;
-}
-
-export function parseTypeDeclaration(content: string): { name: string; parents: string[] } | undefined {
-	const match = content.match(
-		/\b(?:class|trait|interface)\s+(\w+)(?:\s*<[^>]+>)?(?:\s+extends\s+([^{]+?))?(?:\s+implements\s+([^{]+?))?\s*\{/m
-	);
-	if (!match) {
-		return undefined;
-	}
-	return {
-		name: match[1],
-		parents: [...splitTypeNames(match[2]), ...splitTypeNames(match[3])]
-	};
-}
-
-const METHOD_DECL_LINE_RE =
-	/^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|private|protected|static|final|synchronized|abstract)\s+)*(?:def|(?:void|boolean|Boolean|String|Map|List|Set|Integer|Long|Double|Float|Object|int|long|double|float|char|byte|short)|[A-Z][\w.<>,\[\]\s]*)\s+([a-zA-Z_]\w*)\s*\(/;
-
-export function findMethodInText(content: string, methodName: string): MethodLocation[] {
-	return listMethodsInText(content).filter(loc => loc.name === methodName).map(loc => ({
-		filePath: loc.filePath,
-		line: loc.line,
-		column: loc.column
-	}));
 }
 
 export interface ListedMethod {
@@ -38,41 +17,53 @@ export interface ListedMethod {
 	className?: string;
 }
 
-export function listMethodsInText(content: string): ListedMethod[] {
-	const locations: ListedMethod[] = [];
-	const lines = content.split('\n');
-	const typeDecl = parseTypeDeclaration(content);
-	const ownClassName = typeDecl?.name;
+export interface FieldMatch {
+	filePath: string;
+	line: number;
+	column: number;
+	typeName: string;
+}
 
-	for (let line = 0; line < lines.length; line++) {
-		const text = lines[line];
-		const match = text.match(METHOD_DECL_LINE_RE);
-		if (!match) {
-			continue;
-		}
-		const name = match[1];
-		// Skip constructors matching the enclosing type name.
-		if (ownClassName && name === ownClassName) {
-			continue;
-		}
-		const column = text.search(new RegExp(`\\b${escapeRegex(name)}\\s*\\(`));
-		if (column >= 0) {
-			locations.push({ name, filePath: '', line, column, className: ownClassName });
-		}
-	}
+type ReadFile = (filePath: string) => string | undefined;
+type FindEntries = (className: string) => Array<{ filePath: string; packageName?: string }>;
 
-	return locations;
+export function findMethodInText(content: string, methodName: string, className?: string, filePath?: string): MethodLocation[] {
+	return listMethodsInText(content, className, filePath).filter(method => method.name === methodName).map(method => ({
+		filePath: method.filePath,
+		line: method.line,
+		column: method.column
+	}));
+}
+
+export function listMethodsInText(content: string, className?: string, filePath?: string): ListedMethod[] {
+	const symbols = analyzeDocument(content, filePath).symbols;
+	const ownClass = className ? classNamed(symbols, className) : undefined;
+	return symbols.methods
+		.filter(method => !ownClass || method.classFqn === ownClass.fqn)
+		.map(method => ({
+			name: method.name,
+			filePath: '',
+			line: method.line,
+			column: method.column,
+			className: simpleNameFromFqn(method.classFqn)
+		}));
+}
+
+export function classParents(symbols: ParsedDocumentSymbols, className?: string): string[] {
+	const ownClass = className ? classNamed(symbols, className) : symbols.classes[0];
+	return [...(ownClass?.extendsTypes ?? []), ...(ownClass?.implementsTypes ?? [])].map(simpleNameFromFqn);
 }
 
 export function findMethodInClassHierarchy(
-	readFile: (filePath: string) => string | undefined,
-	findEntries: (className: string) => Array<{ filePath: string }>,
+	readFile: ReadFile,
+	findEntries: FindEntries,
 	className: string,
 	methodName: string,
 	visited: Set<string> = new Set(),
-	depth = 0
+	depth = 0,
+	referencingContent?: string
 ): MethodLocation[] {
-	return listMethodsInClassHierarchy(readFile, findEntries, className, visited, depth)
+	return listMethodsInClassHierarchy(readFile, findEntries, className, visited, depth, referencingContent)
 		.filter(method => method.name === methodName)
 		.map(method => ({
 			filePath: method.filePath,
@@ -81,53 +72,46 @@ export function findMethodInClassHierarchy(
 		}));
 }
 
-/** Lists methods on a type and its parents; local declarations win over inherited names. */
 export function listMethodsInClassHierarchy(
-	readFile: (filePath: string) => string | undefined,
-	findEntries: (className: string) => Array<{ filePath: string }>,
+	readFile: ReadFile,
+	findEntries: FindEntries,
 	className: string,
 	visited: Set<string> = new Set(),
-	depth = 0
+	depth = 0,
+	referencingContent?: string
 ): ListedMethod[] {
-	if (!className || visited.has(className) || depth > MAX_HIERARCHY_DEPTH) {
+	if (!className || depth > MAX_HIERARCHY_DEPTH) {
 		return [];
 	}
-	visited.add(className);
 
 	const byName = new Map<string, ListedMethod>();
-	let parents: string[] = [];
+	const lineage: Array<{ parents: string[]; content: string }> = [];
 
-	for (const entry of findEntries(className)) {
+	for (const entry of preferReferencedEntries(findEntries(className), className, readFile, referencingContent)) {
+		if (visited.has(entry.filePath)) {
+			continue;
+		}
+		visited.add(entry.filePath);
 		const content = readFile(entry.filePath);
 		if (!content) {
 			continue;
 		}
 
-		for (const method of listMethodsInText(content)) {
+		for (const method of listMethodsInText(content, className, entry.filePath)) {
 			if (!byName.has(method.name)) {
-				byName.set(method.name, {
-					...method,
-					filePath: entry.filePath,
-					className
-				});
+				byName.set(method.name, { ...method, filePath: entry.filePath, className });
 			}
 		}
 
-		if (parents.length === 0) {
-			parents = parseTypeDeclaration(content)?.parents ?? [];
-		}
+		lineage.push({ parents: classParents(analyzeDocument(content, entry.filePath).symbols, className), content });
 	}
 
-	for (const parent of parents) {
-		for (const inherited of listMethodsInClassHierarchy(
-			readFile,
-			findEntries,
-			parent,
-			visited,
-			depth + 1
-		)) {
-			if (!byName.has(inherited.name)) {
-				byName.set(inherited.name, inherited);
+	for (const { parents, content } of lineage) {
+		for (const parent of parents) {
+			for (const inherited of listMethodsInClassHierarchy(readFile, findEntries, parent, visited, depth + 1, content)) {
+				if (!byName.has(inherited.name)) {
+					byName.set(inherited.name, inherited);
+				}
 			}
 		}
 	}
@@ -135,38 +119,72 @@ export function listMethodsInClassHierarchy(
 	return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function splitTypeNames(segment?: string): string[] {
-	if (!segment) {
+export function findFieldInClassHierarchy(
+	readFile: ReadFile,
+	findEntries: FindEntries,
+	className: string,
+	fieldName: string,
+	referencingContent?: string,
+	visited: Set<string> = new Set(),
+	depth = 0
+): FieldMatch[] {
+	if (!className || depth > MAX_HIERARCHY_DEPTH) {
 		return [];
 	}
-	const withoutGenerics = stripGenerics(segment);
-	return withoutGenerics
-		.split(',')
-		.map(part => part.trim())
-		.map(part => part.split(/\s+/).filter(Boolean).pop() || '')
-		.map(part => part.split('.').pop() || '')
-		.filter(name => /^\w+$/.test(name));
-}
 
-function stripGenerics(value: string): string {
-	let result = '';
-	let depth = 0;
-	for (const char of value) {
-		if (char === '<') {
-			depth += 1;
+	for (const entry of preferReferencedEntries(findEntries(className), className, readFile, referencingContent)) {
+		if (visited.has(entry.filePath)) {
 			continue;
 		}
-		if (char === '>') {
-			depth = Math.max(0, depth - 1);
+		visited.add(entry.filePath);
+		const content = readFile(entry.filePath);
+		if (!content) {
 			continue;
 		}
-		if (depth === 0) {
-			result += char;
+		const symbols = analyzeDocument(content, entry.filePath).symbols;
+		const ownClass = classNamed(symbols, className);
+		const constant = symbols.enumConstants.find(candidate => candidate.name === fieldName && candidate.enumFqn === ownClass?.fqn);
+		if (constant) {
+			return [{ filePath: entry.filePath, line: constant.line, column: constant.column, typeName: className }];
+		}
+		const field = symbols.fields.find(candidate => candidate.classMember && candidate.name === fieldName && candidate.classFqn === ownClass?.fqn);
+		if (field) {
+			return [{ filePath: entry.filePath, line: field.line, column: field.column, typeName: simpleNameFromFqn(field.typeName) }];
+		}
+		for (const parent of classParents(symbols, className)) {
+			const inherited = findFieldInClassHierarchy(readFile, findEntries, parent, fieldName, content, visited, depth + 1);
+			if (inherited.length > 0) {
+				return inherited;
+			}
 		}
 	}
-	return result;
+
+	return [];
 }
 
-function escapeRegex(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function preferReferencedEntries<T extends { filePath: string; packageName?: string }>(
+	entries: T[],
+	className: string,
+	readFile: ReadFile,
+	referencingContent?: string
+): T[] {
+	if (entries.length <= 1 || !referencingContent) {
+		return entries;
+	}
+	const imports = parseImports(referencingContent);
+	const explicit = importedTypeName(imports, className);
+	const candidatePackages = explicit
+		? [packageNameFromFqn(explicit)]
+		: [parsePackageName(referencingContent), ...wildcardImportPackages(imports)];
+	for (const candidate of candidatePackages) {
+		const matching = entries.filter(entry => (entry.packageName ?? parsePackageName(readFile(entry.filePath) ?? '')) === candidate);
+		if (matching.length > 0) {
+			return matching;
+		}
+	}
+	return entries;
+}
+
+function classNamed(symbols: ParsedDocumentSymbols, className: string) {
+	return symbols.classes.find(cls => cls.simpleName === className) ?? (symbols.classes.length === 1 ? symbols.classes[0] : undefined);
 }

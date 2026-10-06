@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { GrailsArtifactIndex, indexGroovyFile } from '../../groovy/grails_artifact_index';
 import {
-	findDeclaredTypeForIdentifier,
 	parseMemberAccess,
-	resolveMethodCompletions
+	resolveMethodCompletions,
+	resolveReceiverClassNames
 } from '../../groovy/method_completion_logic';
 import { listMethodsInText } from '../../groovy/method_navigation_logic';
 
@@ -33,10 +33,16 @@ suite('method_completion_logic', () => {
 		assert.strictEqual(parseMemberAccess('Widget widget = new Widget()'), undefined);
 	});
 
-	test('reads declared type for a local/field identifier', () => {
+	test('reads the declared type of a field, a local variable and a parameter in scope', () => {
 		const source = loadFixture('WidgetController.groovy');
-		assert.strictEqual(findDeclaredTypeForIdentifier(source, 'widgetService'), 'WidgetService');
-		assert.strictEqual(findDeclaredTypeForIdentifier(source, 'widget'), 'Widget');
+		assert.strictEqual(resolveReceiverClassNames(source, 'widgetService', 10)[0], 'WidgetService');
+		assert.strictEqual(resolveReceiverClassNames(source, 'widget', 10)[0], 'Widget');
+		assert.strictEqual(resolveReceiverClassNames(source, 'widget', 14)[0], 'Widget');
+	});
+
+	test('does not type a receiver from a declaration in another method', () => {
+		const source = 'class Caller {\n    def a() {\n        Order item = build()\n    }\n    def b() {\n        item.\n    }\n}';
+		assert.deepStrictEqual(resolveReceiverClassNames(source, 'item', 5), ['Item']);
 	});
 
 	test('lists methods from Groovy source text', () => {

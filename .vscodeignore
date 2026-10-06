@@ -9,3 +9,7 @@ tsconfig.json
 vsc-extension-quickstart.md
 code-groovy-*.vsix
 *.vsix
+.github/**
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md

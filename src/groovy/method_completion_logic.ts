@@ -1,7 +1,10 @@
 import * as fs from 'fs';
+import { resolveReceiverType } from './call_site_extractor';
+import { simpleNameFromFqn } from './class_index_store';
 import { GrailsArtifactIndex } from './grails_artifact_index';
 import { listMethodsInClassHierarchy, ListedMethod } from './method_navigation_logic';
 import { candidateClassNamesForReceiver } from './service_bean';
+import { splitLines } from './text_scan_logic';
 
 export interface MethodCompletion {
 	name: string;
@@ -13,6 +16,8 @@ export interface MethodCompletionContext {
 	linePrefix: string;
 	documentText: string;
 	artifactIndex: GrailsArtifactIndex;
+	line?: number;
+	sourcePath?: string;
 	readFile?: (filePath: string) => string | undefined;
 }
 
@@ -29,29 +34,13 @@ export function parseMemberAccess(linePrefix: string): { receiver: string; prefi
 	};
 }
 
-export function resolveReceiverClassNames(documentText: string, receiver: string): string[] {
+export function resolveReceiverClassNames(documentText: string, receiver: string, line?: number, sourcePath?: string): string[] {
 	const names = candidateClassNamesForReceiver(receiver);
-	const typed = findDeclaredTypeForIdentifier(documentText, receiver);
+	const typed = resolveReceiverType(documentText, line ?? splitLines(documentText).length - 1, receiver, sourcePath);
 	if (typed) {
-		names.unshift(typed);
+		names.unshift(simpleNameFromFqn(typed));
 	}
 	return [...new Set(names)];
-}
-
-/** Prefer an explicit typed field/param/local: `WidgetService widgetService` */
-export function findDeclaredTypeForIdentifier(documentText: string, identifier: string): string | undefined {
-	const escaped = escapeRegex(identifier);
-	const patterns = [
-		new RegExp(`\\b([A-Z][\\w]*)\\s+${escaped}\\s*(?:=|;|,|\\)|$)`, 'm'),
-		new RegExp(`\\b([A-Z][\\w]*)\\s+${escaped}\\s*\\n`, 'm')
-	];
-	for (const pattern of patterns) {
-		const match = documentText.match(pattern);
-		if (match?.[1]) {
-			return match[1];
-		}
-	}
-	return undefined;
 }
 
 export function resolveMethodCompletions(context: MethodCompletionContext): MethodCompletion[] {
@@ -73,8 +62,8 @@ export function resolveMethodCompletions(context: MethodCompletionContext): Meth
 	const seen = new Set<string>();
 	const completions: MethodCompletion[] = [];
 
-	for (const className of resolveReceiverClassNames(context.documentText, access.receiver)) {
-		const methods = listMethodsInClassHierarchy(readFile, findEntries, className);
+	for (const className of resolveReceiverClassNames(context.documentText, access.receiver, context.line, context.sourcePath)) {
+		const methods = listMethodsInClassHierarchy(readFile, findEntries, className, new Set(), 0, context.documentText);
 		for (const method of methods) {
 			if (prefix && !method.name.toLowerCase().startsWith(prefix)) {
 				continue;
@@ -100,8 +89,4 @@ function toCompletion(method: ListedMethod, fallbackClass: string): MethodComple
 		className,
 		detail: `${className}.${method.name}`
 	};
-}
-
-function escapeRegex(value: string): string {
-	return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

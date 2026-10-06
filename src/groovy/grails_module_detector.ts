@@ -125,44 +125,35 @@ function addModuleFromPath(modulePath: string, moduleName: string, modules: Grai
 	});
 }
 
-export function collectGrailsModuleSourceFiles(modules: GrailsModule[]): string[] {
-	const files: string[] = [];
-	for (const module of modules) {
-		for (const sourcePath of module.sourcePaths) {
-			collectSourceFilesFromDirectory(sourcePath, files);
-		}
-	}
-	return files;
+export async function collectGrailsModuleSourceFiles(modules: GrailsModule[]): Promise<string[]> {
+	const perDirectory = await Promise.all(modules.flatMap(module => module.sourcePaths).map(collectSourceFilesFromDirectory));
+	return perDirectory.flat();
 }
 
-export function collectSourceFilesFromDirectory(dirPath: string, files: string[]): void {
-	if (!fs.existsSync(dirPath)) {
-		return;
-	}
-
-	const stack = [dirPath];
-	while (stack.length > 0) {
-		const current = stack.pop()!;
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(current, { withFileTypes: true });
-		} catch {
-			continue;
-		}
-
-		for (const entry of entries) {
-			const fullPath = path.join(current, entry.name);
-			if (entry.isDirectory()) {
-				if (SKIP_DIRS.has(entry.name)) {
-					continue;
+export async function collectSourceFilesFromDirectory(dirPath: string): Promise<string[]> {
+	const files: string[] = [];
+	let frontier = [dirPath];
+	while (frontier.length > 0) {
+		const next: string[] = [];
+		await Promise.all(frontier.map(async current => {
+			let entries: fs.Dirent[];
+			try {
+				entries = await fs.promises.readdir(current, { withFileTypes: true });
+			} catch {
+				return;
+			}
+			for (const entry of entries) {
+				const fullPath = path.join(current, entry.name);
+				if (entry.isDirectory()) {
+					if (!SKIP_DIRS.has(entry.name)) {
+						next.push(fullPath);
+					}
+				} else if (entry.name.endsWith('.groovy') || entry.name.endsWith('.java')) {
+					files.push(fullPath);
 				}
-				stack.push(fullPath);
-				continue;
 			}
-
-			if (entry.name.endsWith('.groovy') || entry.name.endsWith('.java')) {
-				files.push(fullPath);
-			}
-		}
+		}));
+		frontier = next;
 	}
+	return files.sort();
 }

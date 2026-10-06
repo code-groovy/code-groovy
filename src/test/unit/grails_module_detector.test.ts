@@ -28,7 +28,7 @@ function createFixtureMonorepo(): string {
 }
 
 suite('grails_module_detector', () => {
-	test('detects domain and web modules from a synthetic monorepo', () => {
+	test('detects domain and web modules from a synthetic monorepo', async () => {
 		const root = createFixtureMonorepo();
 		try {
 			const modules = detectGrailsModules([{ uri: { fsPath: root } }]);
@@ -36,7 +36,7 @@ suite('grails_module_detector', () => {
 			assert.ok(names.includes('domain'));
 			assert.ok(names.includes('web'));
 
-			const files = collectGrailsModuleSourceFiles(modules);
+			const files = await collectGrailsModuleSourceFiles(modules);
 			assert.ok(files.length >= 2);
 			assert.ok(files.some(file => file.endsWith('WidgetController.groovy')));
 			assert.ok(files.some(file => file.endsWith('Widget.groovy')));

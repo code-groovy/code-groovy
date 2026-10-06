@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import { ClassIndexStore, indexJarFqns, IndexedType, MAX_INDEXED_CLASSES } from './class_index_store';
 import { hashWorkspaceBuildFiles, resolveGradleProjectRoot, resolveProjectClasspath } from './classpath_resolver';
-import { detectGrailsModules, collectGrailsModuleSourceFiles } from './grails_module_detector';
 import { DefinitionProvider } from './definition_provider';
-import { GrailsArtifactIndex, indexGroovyFile } from './grails_artifact_index';
+import { ReferenceProvider } from './reference_provider';
+import { CallSiteIndexStore } from './call_site_index_store';
+import { GrailsArtifactIndex } from './grails_artifact_index';
 import { ImportCodeActionProvider } from './import_code_action_provider';
 import { ImportCompletionProvider } from './import_completion_provider';
 import { ImportOrderDiagnostics } from './import_order_diagnostics';
@@ -11,14 +12,16 @@ import { GroovydocHoverProvider } from './groovydoc_hover_provider';
 import { IndexStatusBar } from './index_status';
 import { listClassFqnsFromJar } from './jar_class_scanner';
 import { MethodCompletionProvider } from './method_completion_provider';
-import { MethodIndexStore } from './method_index_store';
 import { RenameProvider } from './rename_provider';
+import { discoverSourceFiles, invalidateSourceFiles } from './source_file_discovery';
+import { planSourceRefresh } from './source_refresh_logic';
 import { GroovyTagLibLinkProvider } from '../gsp/groovy_taglib_link_provider';
 import { ProjectTagLibTag } from '../gsp/taglib_parser';
-import { indexWorkspaceDocument } from './workspace_symbol_index';
+import { IndexStores, rebuildIndexStores, updateIndexStores } from './index_stores';
+import { IndexedSource, indexSourceText } from './source_indexer';
+import { TypeHierarchyStore } from './type_hierarchy_store';
 
 const CACHE_KEY = 'codeGroovy.classpathIndex.v2';
-const SOURCE_EXCLUDE = '**/{node_modules,.git,build,target,out}/**';
 
 interface CachedClasspath {
 	hash: string;
@@ -33,7 +36,12 @@ interface RefreshOptions {
 
 export class ClassIndex implements vscode.Disposable {
 	private readonly store = new ClassIndexStore();
-	private readonly methodStore = new MethodIndexStore();
+	private readonly callSiteIndex = new CallSiteIndexStore();
+	private readonly typeHierarchy = new TypeHierarchyStore();
+	private readonly sourceCache = new Map<string, IndexedSource>();
+	private storesBuilt = false;
+	private readonly changedSources = new Set<string>();
+	private sourceRefreshQueue: Promise<void> = Promise.resolve();
 	private readonly artifactIndex = new GrailsArtifactIndex();
 	private readonly completionProvider = new ImportCompletionProvider(this.store);
 	private readonly methodCompletionProvider = new MethodCompletionProvider(this.artifactIndex);
@@ -43,8 +51,11 @@ export class ClassIndex implements vscode.Disposable {
 		this.store,
 		this.artifactIndex,
 		() => this.lastClasspathJars,
+		this.callSiteIndex,
+		this.typeHierarchy,
 		() => this.getGspTags()
 	);
+	private readonly referenceProvider = new ReferenceProvider(this.callSiteIndex, this.typeHierarchy);
 	private readonly renameProvider = new RenameProvider();
 	private readonly importOrderDiagnostics = new ImportOrderDiagnostics();
 	private readonly disposables: vscode.Disposable[] = [];
@@ -88,6 +99,10 @@ export class ClassIndex implements vscode.Disposable {
 				{ language: 'groovy' },
 				this.definitionProvider
 			),
+			vscode.languages.registerReferenceProvider(
+				{ language: 'groovy' },
+				this.referenceProvider
+			),
 			vscode.languages.registerDocumentLinkProvider(
 				{ language: 'groovy' },
 				new GroovyTagLibLinkProvider()
@@ -103,10 +118,16 @@ export class ClassIndex implements vscode.Disposable {
 		);
 
 		const sourceWatcher = vscode.workspace.createFileSystemWatcher('**/*.{groovy,java}');
-		sourceWatcher.onDidCreate(() => this.scheduleSourceRefresh());
-		sourceWatcher.onDidChange(() => this.scheduleSourceRefresh());
-		sourceWatcher.onDidDelete(() => this.scheduleSourceRefresh());
+		sourceWatcher.onDidCreate(uri => this.scheduleSourceRefresh(uri, true));
+		sourceWatcher.onDidChange(uri => this.scheduleSourceRefresh(uri, false));
+		sourceWatcher.onDidDelete(uri => this.scheduleSourceRefresh(uri, true));
 		this.disposables.push(sourceWatcher);
+		this.disposables.push(vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('codeGroovy.modules') || event.affectsConfiguration('codeGroovy.index.maxSourceFiles')) {
+				invalidateSourceFiles();
+				this.refreshSource({ showProgress: false }).catch(error => this.logRefreshError('source', error));
+			}
+		}));
 
 		const buildWatcher = vscode.workspace.createFileSystemWatcher(
 			'**/{build.gradle,build.gradle.kts,settings.gradle,settings.gradle.kts,gradle.lockfile,pom.xml}'
@@ -141,10 +162,6 @@ export class ClassIndex implements vscode.Disposable {
 		return this.store;
 	}
 
-	getMethodStore(): MethodIndexStore {
-		return this.methodStore;
-	}
-
 	getArtifactIndex(): GrailsArtifactIndex {
 		return this.artifactIndex;
 	}
@@ -169,13 +186,21 @@ export class ClassIndex implements vscode.Disposable {
 		this.disposables.forEach(d => d.dispose());
 	}
 
-	private scheduleSourceRefresh(): void {
+	private scheduleSourceRefresh(uri: vscode.Uri, filesAddedOrRemoved: boolean): void {
+		this.changedSources.add(uri.fsPath);
+		if (filesAddedOrRemoved) {
+			invalidateSourceFiles();
+		}
 		if (this.sourceTimer) {
 			clearTimeout(this.sourceTimer);
 		}
 		this.sourceTimer = setTimeout(() => {
-			void this.refreshSource({ showProgress: false });
+			this.refreshSource({ showProgress: false }).catch(error => this.logRefreshError('source', error));
 		}, 400);
+	}
+
+	private logRefreshError(kind: string, error: unknown): void {
+		this.statusBar?.log(`Index ${kind} refresh failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
 
 	private scheduleClasspathRefresh(): void {
@@ -183,37 +208,25 @@ export class ClassIndex implements vscode.Disposable {
 			clearTimeout(this.classpathTimer);
 		}
 		this.classpathTimer = setTimeout(() => {
-			void this.refreshClasspath({ showProgress: true, forceClasspath: true });
+			this.refreshClasspath({ showProgress: true, forceClasspath: true }).catch(error => this.logRefreshError('classpath', error));
 		}, 2000);
 	}
 
-	private async refreshSource(options: RefreshOptions = {}): Promise<void> {
-		const showProgress = options.showProgress ?? false;
-		const workspaceFolders = vscode.workspace.workspaceFolders;
-		const configuredModules = vscode.workspace.getConfiguration('codeGroovy').get<string[]>('modules');
-		const grailsModules = workspaceFolders
-			? detectGrailsModules(workspaceFolders, configuredModules)
-			: [];
-		let filePaths: string[];
+	private refreshSource(options: RefreshOptions = {}): Promise<void> {
+		this.sourceRefreshQueue = this.sourceRefreshQueue.then(() => this.runSourceRefresh(options), () => this.runSourceRefresh(options));
+		return this.sourceRefreshQueue;
+	}
 
-		if (grailsModules.length > 0) {
-			filePaths = collectGrailsModuleSourceFiles(grailsModules);
-			if (showProgress) {
-				this.statusBar?.log(
-					`Grails modules: ${grailsModules.map(module => module.name).join(', ')} (${filePaths.length} source file(s))`
-				);
-			}
-		} else {
-			const maxFiles = vscode.workspace.getConfiguration('codeGroovy').get<number>('index.maxSourceFiles', 0);
-			const files = await vscode.workspace.findFiles(
-				'**/*.{groovy,java}',
-				SOURCE_EXCLUDE,
-				maxFiles > 0 ? maxFiles : undefined
-			);
-			filePaths = files.map(file => file.fsPath);
-			if (showProgress) {
-				this.statusBar?.log(`Workspace scan: ${filePaths.length} source file(s)`);
-			}
+	private async runSourceRefresh(options: RefreshOptions = {}): Promise<void> {
+		const showProgress = options.showProgress ?? false;
+		if (showProgress) {
+			invalidateSourceFiles();
+		}
+		const { filePaths, grailsModules } = await discoverSourceFiles();
+		if (showProgress) {
+			this.statusBar?.log(grailsModules.length > 0
+				? `Grails modules: ${grailsModules.map(module => module.name).join(', ')} (${filePaths.length} source file(s))`
+				: `Workspace scan: ${filePaths.length} source file(s)`);
 		}
 
 		this.lastSourceFileCount = filePaths.length;
@@ -222,34 +235,67 @@ export class ClassIndex implements vscode.Disposable {
 			this.statusBar?.beginSourceScan(filePaths.length);
 		}
 
-		const types: IndexedType[] = [];
-		const methods: ReturnType<typeof indexWorkspaceDocument>['methods'] = [];
-		this.artifactIndex.clear();
+		const changed = new Set(this.changedSources);
+		this.changedSources.clear();
+		const plan = planSourceRefresh(filePaths, this.sourceCache.keys(), changed, showProgress);
+		const incremental = !showProgress && this.storesBuilt;
+		const previous = new Map<string, IndexedSource>();
+		for (const filePath of [...plan.removed, ...plan.toIndex]) {
+			const cached = this.sourceCache.get(filePath);
+			if (cached) {
+				previous.set(filePath, cached);
+			}
+		}
+		for (const removedPath of plan.removed) {
+			this.sourceCache.delete(removedPath);
+		}
+
 		for (let index = 0; index < filePaths.length; index++) {
 			const filePath = filePaths[index];
-			try {
-				const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
-				const text = Buffer.from(bytes).toString('utf8');
-				const indexed = indexWorkspaceDocument(text, filePath);
-				types.push(...indexed.types);
-				methods.push(...indexed.methods);
-				if (filePath.endsWith('.groovy')) {
-					this.artifactIndex.addEntry(indexGroovyFile(filePath));
+			if (plan.toIndex.has(filePath)) {
+				const indexed = await this.indexSourceFile(filePath);
+				if (indexed) {
+					this.sourceCache.set(filePath, indexed);
+				} else {
+					this.sourceCache.delete(filePath);
 				}
-			} catch {
-				// skip unreadable source
 			}
 			if (showProgress) {
 				this.statusBar?.progressSource(filePath, index + 1);
 			}
 		}
-		this.store.removeBySource('workspace');
-		this.methodStore.clear();
-		this.store.add(types);
-		this.methodStore.add(methods);
+
+		if (incremental) {
+			this.updateStores(previous, plan.toIndex);
+		} else {
+			this.rebuildStores();
+		}
 
 		if (!showProgress && this.initialIndexComplete) {
 			this.finalizeStatus();
+		}
+	}
+
+	private rebuildStores(): void {
+		rebuildIndexStores(this.indexStores(), this.sourceCache);
+		this.storesBuilt = true;
+	}
+
+	private updateStores(previous: Map<string, IndexedSource>, indexed: Set<string>): void {
+		updateIndexStores(this.indexStores(), previous, indexed, this.sourceCache);
+	}
+
+	private indexStores(): IndexStores {
+		return { classStore: this.store, callSiteIndex: this.callSiteIndex, typeHierarchy: this.typeHierarchy, artifactIndex: this.artifactIndex };
+	}
+
+	private async indexSourceFile(filePath: string): Promise<IndexedSource | undefined> {
+		try {
+			const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
+			return indexSourceText(Buffer.from(bytes).toString('utf8'), filePath);
+		} catch (error) {
+			this.statusBar?.log(`Could not index ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+			return undefined;
 		}
 	}
 

@@ -26,6 +26,15 @@ export class GrailsArtifactIndex {
 		this.entries.set(entry.className, list);
 	}
 
+	removeEntry(entry: GrailsArtifactEntry): void {
+		const list = this.entries.get(entry.className)?.filter(existing => existing.filePath !== entry.filePath);
+		if (list && list.length > 0) {
+			this.entries.set(entry.className, list);
+		} else {
+			this.entries.delete(entry.className);
+		}
+	}
+
 	findAllByClassName(className: string): GrailsArtifactEntry[] {
 		const found = this.entries.get(className);
 		if (!found || found.length < 2) {
@@ -53,13 +62,13 @@ export class GrailsArtifactIndex {
 	}
 }
 
-export function indexGroovyFile(filePath: string): GrailsArtifactEntry {
+export function indexGroovyFile(filePath: string, packageName: string | undefined = readPackageName(filePath)): GrailsArtifactEntry {
 	const className = path.basename(filePath, '.groovy');
 	return {
 		kind: detectKind(className, filePath),
 		className,
 		filePath,
-		packageName: readPackageName(filePath)
+		packageName
 	};
 }
 

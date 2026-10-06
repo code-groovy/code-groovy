@@ -1,3 +1,6 @@
+import { isGroovyKeyword } from './groovy_keywords';
+import { escapeRegExp, maskNonCode } from './text_scan_logic';
+
 export interface TextRange {
 	start: number;
 	end: number;
@@ -10,21 +13,8 @@ export interface PrepareRenameResult {
 
 const IDENTIFIER_RE = /^[A-Za-z_]\w*$/;
 
-const GROOVY_KEYWORDS = new Set([
-	'abstract', 'as', 'assert', 'boolean', 'break', 'byte', 'case', 'catch', 'char', 'class',
-	'const', 'continue', 'def', 'default', 'do', 'double', 'else', 'enum', 'extends', 'false',
-	'final', 'finally', 'float', 'for', 'goto', 'if', 'implements', 'import', 'in', 'instanceof',
-	'int', 'interface', 'long', 'native', 'new', 'null', 'package', 'private', 'protected',
-	'public', 'return', 'short', 'static', 'strictfp', 'super', 'switch', 'synchronized',
-	'this', 'throw', 'throws', 'trait', 'transient', 'true', 'try', 'void', 'volatile', 'while'
-]);
-
 export function isValidIdentifier(name: string): boolean {
 	return IDENTIFIER_RE.test(name);
-}
-
-export function isGroovyKeyword(name: string): boolean {
-	return GROOVY_KEYWORDS.has(name);
 }
 
 export function wordRangeAt(documentText: string, offset: number): TextRange | undefined {
@@ -78,85 +68,13 @@ export function collectLocalRenameEdits(
 	}
 
 	const edits: TextRange[] = [];
-	let i = 0;
-	const length = documentText.length;
-
-	while (i < length) {
-		const ch = documentText[i];
-		const next = documentText[i + 1];
-
-		if (ch === '/' && next === '/') {
-			i = skipUntil(documentText, i + 2, '\n');
-			continue;
-		}
-		if (ch === '/' && next === '*') {
-			i = skipBlockComment(documentText, i + 2);
-			continue;
-		}
-		if (ch === '"' && documentText.startsWith('"""', i)) {
-			i = skipTripleQuoted(documentText, i + 3, '"""');
-			continue;
-		}
-		if (ch === "'" && documentText.startsWith("'''", i)) {
-			i = skipTripleQuoted(documentText, i + 3, "'''");
-			continue;
-		}
-		if (ch === '"' || ch === "'") {
-			i = skipQuoted(documentText, i + 1, ch);
-			continue;
-		}
-
-		if (/[A-Za-z_]/.test(ch)) {
-			const start = i;
-			i += 1;
-			while (i < length && /[A-Za-z0-9_]/.test(documentText[i])) {
-				i += 1;
-			}
-			const word = documentText.slice(start, i);
-			if (word === oldName) {
-				edits.push({ start, end: i });
-			}
-			continue;
-		}
-
-		i += 1;
+	const masked = maskNonCode(documentText);
+	const wordRe = new RegExp(`(?<![\\w$])${escapeRegExp(oldName)}(?![\\w$])`, 'g');
+	let match: RegExpExecArray | null;
+	while ((match = wordRe.exec(masked)) !== null) {
+		edits.push({ start: match.index, end: match.index + oldName.length });
 	}
-
 	return edits;
-}
-
-function skipUntil(text: string, from: number, endChar: string): number {
-	const idx = text.indexOf(endChar, from);
-	return idx === -1 ? text.length : idx + endChar.length;
-}
-
-function skipBlockComment(text: string, from: number): number {
-	const idx = text.indexOf('*/', from);
-	return idx === -1 ? text.length : idx + 2;
-}
-
-function skipQuoted(text: string, from: number, quote: string): number {
-	let i = from;
-	while (i < text.length) {
-		const ch = text[i];
-		if (ch === '\\') {
-			i += 2;
-			continue;
-		}
-		if (ch === quote) {
-			return i + 1;
-		}
-		if (ch === '\n') {
-			return i;
-		}
-		i += 1;
-	}
-	return text.length;
-}
-
-function skipTripleQuoted(text: string, from: number, delimiter: string): number {
-	const idx = text.indexOf(delimiter, from);
-	return idx === -1 ? text.length : idx + delimiter.length;
 }
 
 export function applyLocalRename(documentText: string, oldName: string, newName: string): string {

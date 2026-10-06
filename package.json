@@ -2,7 +2,7 @@
     "name": "code-groovy",
     "displayName": "Code Groovy",
     "description": "Groovy and GSP support for VS Code and Cursor",
-    "version": "0.2.2",
+    "version": "0.2.5",
     "publisher": "marlon407",
     "license": "MIT",
     "engines": {
@@ -33,8 +33,12 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/marlon407/code-groovy"
+        "url": "https://github.com/code-groovy/code-groovy"
     },
+    "bugs": {
+        "url": "https://github.com/code-groovy/code-groovy/issues"
+    },
+    "homepage": "https://github.com/code-groovy/code-groovy#readme",
     "main": "./out/extension",
     "extensionDependencies": [
         "vscode.html-language-features",
