@@ -24,6 +24,8 @@ export interface GroovyDebugInput {
 	openBrowserOnReady?: boolean;
 	/** Gradle `--console` (default rich — colored logs in the debug terminal). */
 	gradleConsole?: 'rich' | 'plain';
+	/** JDWP `suspend` — `n` lets the app boot while attaching (default); `y` freezes until Continue. */
+	jdwpSuspend?: 'y' | 'n';
 }
 
 export type GradleConsoleMode = 'rich' | 'plain';
@@ -45,6 +47,7 @@ export interface JavaAttachConfig {
 	port: number;
 	sourcePaths: string[];
 	projectName?: string;
+	stopOnEntry?: boolean;
 }
 
 export interface GradleDebugCommand {
@@ -167,6 +170,7 @@ export function buildGradleDebugCommand(
 			: task;
 
 	const port = parseDebugPort(input.port);
+	const jdwpSuspend = input.jdwpSuspend === 'y' ? 'y' : 'n';
 	const gradleArgs = input.gradleArgs || [];
 	const consoleMode: GradleConsoleMode = input.gradleConsole === 'plain' ? 'plain' : 'rich';
 	const consoleFlag = gradleArgs.some(arg => arg === '--console=plain' || arg.startsWith('--console='))
@@ -180,7 +184,7 @@ export function buildGradleDebugCommand(
 	fs.mkdirSync(initScriptDir, { recursive: true });
 	const initFile = path.join(initScriptDir, `code-groovy-jdwp-${port}-${process.pid}.gradle`);
 	try {
-		fs.writeFileSync(initFile, gradleJavaExecJdwpInitScript(port, gradleTask), { mode: 0o600 });
+		fs.writeFileSync(initFile, gradleJavaExecJdwpInitScript(port, gradleTask, jdwpSuspend), { mode: 0o600 });
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(`Could not write Gradle JDWP init script: ${message}`);
@@ -215,13 +219,18 @@ export function isBootRunLikeGradleTask(gradleTask: string): boolean {
 	return /(?:^|:)(?:bootRun|run)$/i.test(gradleTask.trim());
 }
 
-export function jdwpAgentLib(port: number = DEFAULT_DEBUG_PORT): string {
+export function jdwpAgentLib(port: number = DEFAULT_DEBUG_PORT, suspend: 'y' | 'n' = 'n'): string {
 	// Use 127.0.0.1 — `address=*:port` breaks on some JVMs (gethostbyname: unknown host).
-	return `-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=127.0.0.1:${port}`;
+	const suspendFlag = suspend === 'y' ? 'y' : 'n';
+	return `-agentlib:jdwp=transport=dt_socket,server=y,suspend=${suspendFlag},address=127.0.0.1:${port}`;
 }
 
-export function gradleJavaExecJdwpInitScript(port: number = DEFAULT_DEBUG_PORT, gradleTaskPath = ':web:bootRun'): string {
-	const agent = jdwpAgentLib(port).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+export function gradleJavaExecJdwpInitScript(
+	port: number = DEFAULT_DEBUG_PORT,
+	gradleTaskPath = ':web:bootRun',
+	suspend: 'y' | 'n' = 'n'
+): string {
+	const agent = jdwpAgentLib(port, suspend).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 	const taskPath = gradleTaskPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 	return `
 def codeGroovyJdwpAgent = '${agent}'
@@ -268,6 +277,7 @@ export function toJavaAttachConfig(
 		hostName: (input.hostName || 'localhost').trim() || 'localhost',
 		port: parseDebugPort(input.port),
 		sourcePaths: input.sourcePaths?.length ? uniquePaths(input.sourcePaths) : uniquePaths(sourcePaths),
+		stopOnEntry: false,
 		...(projectName ? { projectName } : {})
 	};
 }

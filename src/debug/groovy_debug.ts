@@ -41,6 +41,7 @@ export function registerGroovyDebug(context: vscode.ExtensionContext): void {
 				vscode.DebugConfigurationProviderTriggerKind.Dynamic
 			),
 			vscode.debug.registerDebugAdapterDescriptorFactory('groovy', new GroovyDebugAdapterFactory()),
+			vscode.debug.registerDebugAdapterTrackerFactory('groovy', new GroovyDebugTrackerFactory()),
 			vscode.commands.registerCommand('cgroovy.debugApp', () => controller.startFromCommand())
 		);
 		registerGroovyDebugInspection(context);
@@ -52,15 +53,51 @@ export function registerGroovyDebug(context: vscode.ExtensionContext): void {
 	}
 }
 
+class GroovyDebugTrackerFactory implements vscode.DebugAdapterTrackerFactory {
+	createDebugAdapterTracker(session: vscode.DebugSession): vscode.DebugAdapterTracker {
+		return {
+			onDidSendMessage: message => {
+				const event = message as { type?: string; event?: string };
+				if (event.type === 'event' && event.event === 'continued') {
+					GroovyDebugController.notifyDebugContinued(session.name);
+				}
+			}
+		};
+	}
+}
+
 class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode.Disposable {
 	constructor(private readonly initScriptDir: string) {}
+
+	private static continueBeforeBrowser = new Map<string, { promise: Promise<void>; resolve: () => void }>();
+
+	static prepareContinueBeforeBrowser(sessionName: string, enabled: boolean): void {
+		GroovyDebugController.continueBeforeBrowser.delete(sessionName);
+		if (!enabled) {
+			return;
+		}
+		let resolve!: () => void;
+		const promise = new Promise<void>(done => {
+			resolve = done;
+		});
+		GroovyDebugController.continueBeforeBrowser.set(sessionName, { promise, resolve });
+	}
+
+	static notifyDebugContinued(sessionName: string): void {
+		const gate = GroovyDebugController.continueBeforeBrowser.get(sessionName);
+		if (!gate) {
+			return;
+		}
+		gate.resolve();
+		GroovyDebugController.continueBeforeBrowser.delete(sessionName);
+	}
 
 	private debugTerminal: vscode.Terminal | undefined;
 	private gradlePty: GradleRunPseudoterminal | undefined;
 	private launchedSessionName: string | undefined;
 	private appReadyHandled = false;
 	private appReadyInFlight: Promise<void> | undefined;
-	private appReadyOptions: { openBrowser: boolean; serverUrl?: string } = { openBrowser: true };
+	private appReadyOptions: { openBrowser: boolean; serverUrl?: string; sessionName?: string } = { openBrowser: true };
 	private readonly output = vscode.window.createOutputChannel('Code Groovy Debug');
 	private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
 	private readonly disposables: vscode.Disposable[] = [
@@ -142,6 +179,8 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 		);
 		if (input.request === 'launch') {
 			this.launchedSessionName = javaConfig.name;
+			const jdwpSuspend = input.jdwpSuspend === 'y' ? 'y' : 'n';
+			GroovyDebugController.prepareContinueBeforeBrowser(javaConfig.name, jdwpSuspend === 'y');
 		}
 		return {
 			...javaConfig,
@@ -187,10 +226,12 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 		const debugPort = parseDebugPort(input.port);
 		input.useBootRunDebugJvm = debugConfig.get<boolean>('debug.useBootRunDebugJvm', false);
 		input.gradleConsole = debugConfig.get<'rich' | 'plain'>('debug.gradleConsole', 'rich');
+		input.jdwpSuspend = input.jdwpSuspend ?? debugConfig.get<'y' | 'n'>('debug.jdwpSuspend', 'n');
 		this.appReadyHandled = false;
 		this.appReadyOptions = {
 			openBrowser: input.openBrowserOnReady ?? debugConfig.get<boolean>('debug.openBrowserOnReady', true),
-			serverUrl: (input.serverUrl || debugConfig.get<string>('debug.serverUrl', '')).trim() || undefined
+			serverUrl: (input.serverUrl || debugConfig.get<string>('debug.serverUrl', '')).trim() || undefined,
+			sessionName: input.name
 		};
 
 		let command;
@@ -422,6 +463,16 @@ class GroovyDebugController implements vscode.DebugConfigurationProvider, vscode
 
 		progress.report({ message: `Waiting for ${url} to respond…` });
 		this.setDebugStatus({ phase: 'running', message: `Waiting for ${url}…` });
+
+		const sessionName = this.appReadyOptions.sessionName ?? this.launchedSessionName;
+		const continueGate = sessionName ? GroovyDebugController.continueBeforeBrowser.get(sessionName) : undefined;
+		if (continueGate) {
+			progress.report({ message: 'Press Continue (F5) in the debugger so the app can finish starting…' });
+			await Promise.race([
+				continueGate.promise,
+				sleep(600_000)
+			]);
+		}
 
 		const ready = await waitForHttpReady(url, 300_000);
 		if (!ready) {

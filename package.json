@@ -118,6 +118,15 @@
                     "default": "",
                     "markdownDescription": "Optional app URL for readiness checks (e.g. `http://localhost:8080`). Leave empty to parse from Gradle output (`Grails application running at …`)."
                 },
+                "codeGroovy.debug.jdwpSuspend": {
+                    "type": "string",
+                    "enum": [
+                        "n",
+                        "y"
+                    ],
+                    "default": "n",
+                    "markdownDescription": "JDWP **suspend** flag on the app JVM. **n** (default): app boots while the debugger attaches — breakpoints work without an extra Continue at startup. **y**: JVM waits frozen until you Continue once (older behavior)."
+                },
                 "codeGroovy.debug.gradleConsole": {
                     "type": "string",
                     "enum": [

@@ -67,6 +67,7 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 		const dap = message as DapMessage;
 		if (dap.type === 'request' && (dap.command === 'attach' || dap.command === 'launch') && dap.arguments) {
 			dap.arguments.type = 'java';
+			dap.arguments.stopOnEntry = false;
 		}
 		if (dap.type === 'request' && dap.command === 'evaluate') {
 			void this.answerEvaluate(dap);

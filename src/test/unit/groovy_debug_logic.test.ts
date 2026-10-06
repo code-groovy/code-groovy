@@ -212,7 +212,13 @@ suite('groovy_debug_logic', () => {
 		assert.ok(script.includes('target.doFirst'));
 		assert.ok(script.includes('codeGroovyTargetTaskPath'));
 		assert.ok(script.includes('address=127.0.0.1:5005'));
-		assert.ok(script.includes('suspend=y'));
+		assert.ok(script.includes('suspend=n'));
+		assert.ok(gradleJavaExecJdwpInitScript(5005, ':web:bootRun', 'y').includes('suspend=y'));
+	});
+
+	test('java attach config disables stopOnEntry', () => {
+		const config = toJavaAttachConfig({ port: 5005 }, []);
+		assert.strictEqual(config.stopOnEntry, false);
 	});
 
 	test('extracts Grails app URL from bootRun output', () => {
