@@ -1,5 +1,7 @@
 import * as net from 'net';
+import * as path from 'path';
 import * as vscode from 'vscode';
+import { remapGradleBuildOutputToSource } from './groovy_debug_logic';
 import {
 	collectGrailsImplicitsFromTree,
 	DebugVariableNode,
@@ -221,7 +223,32 @@ export class GroovyJavaDebugAdapter implements vscode.DebugAdapter {
 			}
 		}
 
+		this.rewriteDebugSources(message);
 		this.output.fire(message as vscode.DebugProtocolMessage);
+	}
+
+	private rewriteDebugSources(message: DapMessage): void {
+		if (message.type === 'response' && message.command === 'stackTrace' && Array.isArray(message.body?.stackFrames)) {
+			for (const frame of message.body.stackFrames) {
+				this.rewriteFrameSource(frame);
+			}
+		}
+		if (message.body?.source?.path) {
+			this.rewriteFrameSource({ source: message.body.source });
+		}
+	}
+
+	private rewriteFrameSource(frame: { source?: { path?: string; name?: string } }): void {
+		const src = frame.source;
+		if (!src?.path) {
+			return;
+		}
+		const mapped = remapGradleBuildOutputToSource(src.path);
+		if (mapped === src.path) {
+			return;
+		}
+		src.path = mapped;
+		src.name = path.basename(mapped);
 	}
 
 	private async withGrailsImplicits(variables: any[], frameId: number | undefined): Promise<any[]> {

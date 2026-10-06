@@ -16,6 +16,7 @@ import {
 	bootRunDebugJvmFlags,
 	gradleJavaExecJdwpInitScript,
 	gradleStartupTimeoutMs,
+	remapGradleBuildOutputToSource,
 	hasGradleAppTaskStarted,
 	isBootRunLikeGradleTask,
 	isJdwpListening,
@@ -168,6 +169,28 @@ suite('groovy_debug_logic', () => {
 		assert.ok(hasGradleAppTaskStarted('> Task :web:bootRun\n'));
 		assert.ok(hasGradleAppTaskStarted('> Task :app:bootRun\n'));
 		assert.ok(!hasGradleAppTaskStarted('> Task :web:compileGroovy\n'));
+	});
+
+	test('remaps Gradle bin/default copies back to grails-app sources', () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cg-grails-src-'));
+		try {
+			const source = path.join(root, 'web', 'grails-app', 'controllers', 'com', 'example', 'AppController.groovy');
+			fs.mkdirSync(path.dirname(source), { recursive: true });
+			fs.writeFileSync(source, 'class AppController {}\n');
+			const buildCopy = path.join(root, 'web', 'bin', 'default', 'grails-app', 'controllers', 'com', 'example', 'AppController.groovy');
+			fs.mkdirSync(path.dirname(buildCopy), { recursive: true });
+			fs.writeFileSync(buildCopy, 'class AppController {}\n');
+			assert.strictEqual(
+				remapGradleBuildOutputToSource(buildCopy),
+				source
+			);
+			assert.strictEqual(
+				remapGradleBuildOutputToSource(source),
+				source
+			);
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	test('uses configured attach timeout with a safe default', () => {

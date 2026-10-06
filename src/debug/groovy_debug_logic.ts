@@ -529,3 +529,19 @@ function uniquePaths(items: string[]): string[] {
 	}
 	return result;
 }
+
+/** Gradle/Grails copies resources under `bin/default` (and sometimes `bin/main`); JDT may open those instead of `grails-app`. */
+export function remapGradleBuildOutputToSource(filePath: string): string {
+	if (!filePath || !/[/\\]bin([/\\]default|[/\\]main)([/\\])/i.test(filePath)) {
+		return filePath;
+	}
+	const candidate = filePath.replace(/([/\\])bin([/\\])(?:default|main)([/\\])/g, '$1');
+	if (candidate === filePath) {
+		return filePath;
+	}
+	try {
+		return fs.existsSync(candidate) ? candidate : filePath;
+	} catch {
+		return filePath;
+	}
+}

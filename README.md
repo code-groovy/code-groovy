@@ -80,6 +80,8 @@ Requires the Java extensions listed under **Requirements** (installed as depende
 3. **Launch** starts `./gradlew :web:bootRun` in a Grails multi-module repo (`bootRun` at the root for a single module, `run` for Micronaut/plain Gradle), injects JDWP on the app `JavaExec`, waits for `Listening for transport dt_socket`, then attaches. Gradle output stays in the **Groovy Debug** integrated terminal (ANSI colors via `--console=rich` by default). A progress notification and status bar follow Gradle tasks (`:web:compileGroovy` → debug port → application running).
 4. **Attach** connects to a JVM you already started with JDWP (port `5005`).
 
+When the debugger stops in a Gradle copy under `bin/default` (common in Grails multi-module projects), Code Groovy remaps the stack frame to the matching `grails-app` / `src` file you edit.
+
 Hover and the Watch view evaluate Grails implicits as Java (`GrailsWebRequest.lookup().getParams()`, `params.id` → `.get("id")`) so they work on Groovy stack frames. `params` / `session` / `request` / `flash` are also injected at the top of Locals when available.
 
 Optional `launch.json` fields: `port`, `task`, `module`, `gradleArgs`, `sourcePaths`, `projectName`, `serverUrl`, `openBrowserOnReady`. For attach, use `hostName` and `port`. `projectName` is the Java project Debugger for Java uses to evaluate expressions (auto-detected as the Gradle module, usually `web`). Source directories under `grails-app` and `src/main/groovy` are detected automatically.
