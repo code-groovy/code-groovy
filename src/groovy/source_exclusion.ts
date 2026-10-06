@@ -1,3 +1,5 @@
+import * as path from 'path';
+
 const EXCLUDED_DIRECTORY_NAMES = new Set(['node_modules', '.git', 'build', 'target', 'out']);
 const JAVA_OUTPUT_PARENT = 'bin';
 const JAVA_OUTPUT_DIRECTORY_NAMES = new Set(['main', 'test', 'default']);
@@ -13,6 +15,9 @@ export function isExcludedDirectory(name: string, parentName: string): boolean {
 }
 
 export function isExcludedRelativePath(relativePath: string): boolean {
+	if (path.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath)) {
+		return false;
+	}
 	const directories = relativePath.split(/[\\/]/).slice(0, -1);
 	return directories.some((name, index) => isExcludedDirectory(name, directories[index - 1] ?? ''));
 }

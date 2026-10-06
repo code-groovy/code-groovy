@@ -28,6 +28,11 @@ suite('source_exclusion', () => {
 		assert.strictEqual(isExcludedRelativePath('main/Widget.groovy'), false);
 	});
 
+	test('ignores paths outside the workspace, which stay absolute', () => {
+		assert.strictEqual(isExcludedRelativePath('/home/dev/build/project/bin/main/Widget.groovy'), false);
+		assert.strictEqual(isExcludedRelativePath('C:\\work\\out\\project\\Widget.groovy'), false);
+	});
+
 	test('builds one glob with every excluded folder', () => {
 		assert.strictEqual(SOURCE_EXCLUDE_GLOB, '**/{node_modules,.git,build,target,out,bin/main,bin/test,bin/default}/**');
 	});
