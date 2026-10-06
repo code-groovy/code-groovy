@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { collectGrailsModuleSourceFiles, detectGrailsModules, GrailsModule } from './grails_module_detector';
-
-const SOURCE_EXCLUDE = '**/{node_modules,.git,build,target,out}/**';
+import { isExcludedRelativePath, SOURCE_EXCLUDE_GLOB } from './source_exclusion';
 
 export interface SourceFileDiscovery {
 	filePaths: string[];
@@ -32,6 +31,9 @@ async function scanSourceFiles(): Promise<SourceFileDiscovery> {
 		return { filePaths: await collectGrailsModuleSourceFiles(grailsModules), grailsModules };
 	}
 	const maxFiles = configuration.get<number>('index.maxSourceFiles', 0);
-	const files = await vscode.workspace.findFiles('**/*.{groovy,java}', SOURCE_EXCLUDE, maxFiles > 0 ? maxFiles : undefined);
-	return { filePaths: files.map(file => file.fsPath), grailsModules };
+	const files = await vscode.workspace.findFiles('**/*.{groovy,java}', SOURCE_EXCLUDE_GLOB, maxFiles > 0 ? maxFiles : undefined);
+	const filePaths = files
+		.filter(file => !isExcludedRelativePath(vscode.workspace.asRelativePath(file, false)))
+		.map(file => file.fsPath);
+	return { filePaths, grailsModules };
 }

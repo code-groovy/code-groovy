@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { SOURCE_EXCLUDE_GLOB } from '../groovy/source_exclusion';
 import { parseTagLibSource, ProjectTagLibTag } from './taglib_parser';
 
 export type { ProjectTagLibTag } from './taglib_parser';
@@ -9,7 +10,7 @@ export async function scanWorkspaceTagLibs(
 ): Promise<ProjectTagLibTag[]> {
 	const files = await vscode.workspace.findFiles(
 		'**/grails-app/taglib/**/*TagLib.groovy',
-		'**/{node_modules,.git,build,target,out}/**',
+		SOURCE_EXCLUDE_GLOB,
 		500,
 		token
 	);
