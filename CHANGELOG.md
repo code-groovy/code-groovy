@@ -4,6 +4,7 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+- Skip git worktrees nested in the workspace (such as `.claude/worktrees/<name>`, a linked worktree whose `.git` file points to `.git/worktrees/<name>`) when indexing sources and TagLibs and when reacting to file changes, so their copies of the code no longer show up as duplicate Go to Definition (Ctrl+Click / Cmd+Click) targets or usages; opening the worktree itself as the workspace folder still indexes it, and submodules are still indexed
 
 ## [0.3.0] - 2026-10-07
 - Add Groovy/Grails debug: launch Gradle with JDWP on the app JVM or attach to JDWP (port 5005) via Debugger for Java
