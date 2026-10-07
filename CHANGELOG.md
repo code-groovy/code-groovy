@@ -4,6 +4,8 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+
+## [0.2.5] - 2026-10-02
 - Jump from a method or class declaration to where it's used (Go to Definition — Ctrl+Click, Cmd+Click on macOS), mirroring IntelliJ's "Go to Declaration or Usages", including overloaded methods and constructors
 - Support Find All References for Groovy (`Shift+F12`) on methods and classes, using the same lookup as Go to Definition, backed by an in-memory call-site index and a per-class file index built during the existing indexing pass — once the index is ready, a request only reads the files that mention the class instead of the whole workspace; from a call site it reads the receiver the same way as the index (`super.method()` targets the superclass, a receiver on the previous line is used, a chain of typed properties such as `order.status?.isFinished()` is resolved field by field, and the end of a call chain falls back to the current file)
 - Scope usage search to calls on the declaring class — through its Grails field name (field name = class name in camelCase), the class itself (static calls), variables and parameters typed with it, or from inside the class — and show nothing rather than unrelated same-named calls from other classes
