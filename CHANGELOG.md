@@ -4,6 +4,8 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-10-07
 - Add Groovy/Grails debug: launch Gradle with JDWP on the app JVM or attach to JDWP (port 5005) via Debugger for Java
 - Show Groovy debug hover/inline values and inject Grails implicits (`params`, `session`, `request`, `flash`) into the Variables view
 - Compare import order in ASCII (same as Organize Imports), so a util class before a `converter` subpackage is not flagged
