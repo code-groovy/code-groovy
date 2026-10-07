@@ -5,7 +5,10 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 
 export interface ClasspathResolution {
+	/** JARs kept for indexing, capped and ranked. */
 	jars: string[];
+	/** Every resolved JAR. Compiler diagnostics need the full list, not the index cap. */
+	allJars: string[];
 	tool: 'gradle' | 'maven' | 'workspace' | 'none';
 	warning?: string;
 }
@@ -109,14 +112,9 @@ export async function resolveProjectClasspath(
 	if (gradlew) {
 		try {
 			const jars = await resolveGradleClasspath(gradleProjectRoot, gradlew, runCommand);
-			const merged = prioritizeJars(uniqueExisting([...jars, ...workspaceJars]));
-			return { jars: merged, tool: 'gradle' };
+			return resolution(uniqueExisting([...jars, ...workspaceJars]), 'gradle');
 		} catch (error) {
-			return {
-				jars: prioritizeJars(workspaceJars),
-				tool: workspaceJars.length ? 'workspace' : 'none',
-				warning: `Gradle classpath failed: ${error instanceof Error ? error.message : String(error)}`
-			};
+			return resolution(workspaceJars, workspaceJars.length ? 'workspace' : 'none', `Gradle classpath failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
@@ -124,25 +122,29 @@ export async function resolveProjectClasspath(
 	if (fs.existsSync(pom)) {
 		try {
 			const jars = await resolveMavenClasspath(workspaceRoot, runCommand);
-			const merged = prioritizeJars(uniqueExisting([...jars, ...workspaceJars]));
-			return { jars: merged, tool: 'maven' };
+			return resolution(uniqueExisting([...jars, ...workspaceJars]), 'maven');
 		} catch (error) {
-			return {
-				jars: prioritizeJars(workspaceJars),
-				tool: workspaceJars.length ? 'workspace' : 'none',
-				warning: `Maven classpath failed: ${error instanceof Error ? error.message : String(error)}`
-			};
+			return resolution(workspaceJars, workspaceJars.length ? 'workspace' : 'none', `Maven classpath failed: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 
 	if (workspaceJars.length) {
-		return { jars: prioritizeJars(workspaceJars), tool: 'workspace' };
+		return resolution(workspaceJars, 'workspace');
 	}
 
+	return resolution([], 'none', 'No Gradle/Maven project or workspace JARs found; auto-import limited to source.');
+}
+
+function resolution(
+	jars: string[],
+	tool: ClasspathResolution['tool'],
+	warning?: string
+): ClasspathResolution {
 	return {
-		jars: [],
-		tool: 'none',
-		warning: 'No Gradle/Maven project or workspace JARs found; auto-import limited to source.'
+		jars: prioritizeJars(jars),
+		allJars: jars,
+		tool,
+		warning
 	};
 }
 

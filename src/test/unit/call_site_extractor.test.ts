@@ -4,41 +4,41 @@ import { ParsedMethod, parseDocumentSymbols } from '../../groovy/symbol_parser';
 
 suite('call_site_extractor', () => {
 	test('extracts a qualified call with its receiver', () => {
-		const text = 'receivableAnticipationPartnerSettlementItemService.updateStatusInBatch(idList)';
+		const text = 'invoiceSettlementService.updateStatusInBatch(idList)';
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 1);
 		assert.strictEqual(records[0].methodName, 'updateStatusInBatch');
-		assert.strictEqual(records[0].receiverName, 'receivableAnticipationPartnerSettlementItemService');
+		assert.strictEqual(records[0].receiverName, 'invoiceSettlementService');
 		assert.strictEqual(records[0].line, 0);
 		assert.strictEqual(records[0].column, text.indexOf('updateStatusInBatch'));
 	});
 
 	test('extracts an unqualified call with no receiver', () => {
-		const text = 'validateCommercialInfoUpdate(customerId, params)';
+		const text = 'validateProfileUpdate(customerId, params)';
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 1);
-		assert.strictEqual(records[0].methodName, 'validateCommercialInfoUpdate');
+		assert.strictEqual(records[0].methodName, 'validateProfileUpdate');
 		assert.strictEqual(records[0].receiverName, undefined);
 	});
 
 	test('tolerates whitespace around the dot', () => {
-		const text = '   receivableAnticipationPartnerSettlementItemService  .  updateStatusInBatch(x)';
+		const text = '   invoiceSettlementService  .  updateStatusInBatch(x)';
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 1);
-		assert.strictEqual(records[0].receiverName, 'receivableAnticipationPartnerSettlementItemService');
+		assert.strictEqual(records[0].receiverName, 'invoiceSettlementService');
 		assert.strictEqual(records[0].column, text.indexOf('updateStatusInBatch'));
 	});
 
 	test('skips calls inside string literals', () => {
-		const text = '[logErrorMessage: "CustomerService.updateCommercialInfo >> Erro ao atualizar"]';
+		const text = '[logErrorMessage: "WidgetService.save >> failed to update"]';
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 0);
 	});
 
 	test('finds multiple call sites across lines', () => {
 		const text = [
-			'webhookRequestService.updateStatusInBatch(webhookProcessedIdList, WebhookRequestStatus.PROCESSED)',
-			'webhookRequestService.updateStatusInBatch(webhookErrorIdList, WebhookRequestStatus.ERROR)'
+			'widgetService.updateStatusInBatch(webhookProcessedIdList, WebhookRequestStatus.PROCESSED)',
+			'widgetService.updateStatusInBatch(webhookErrorIdList, WebhookRequestStatus.ERROR)'
 		].join('\n');
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 2);
@@ -53,7 +53,7 @@ suite('call_site_extractor', () => {
 	});
 
 	test('a method declaration is itself extracted as a call site with no receiver', () => {
-		const text = 'public void updateItemAsPaid(ReceivableAnticipationPartnerSettlementItem settlementItem) {';
+		const text = 'public void updateItemAsPaid(InvoiceSettlement settlementItem) {';
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 1);
 		assert.strictEqual(records[0].methodName, 'updateItemAsPaid');
@@ -61,11 +61,11 @@ suite('call_site_extractor', () => {
 	});
 
 	test('extracts a receiver-qualified call using paren-less closure syntax', () => {
-		const text = 'exists AnticipationPartnerSettlementItemPixTransaction.where {';
+		const text = 'exists InvoiceSettlementTransaction.where {';
 		const records = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		assert.strictEqual(records.length, 1);
 		assert.strictEqual(records[0].methodName, 'where');
-		assert.strictEqual(records[0].receiverName, 'AnticipationPartnerSettlementItemPixTransaction');
+		assert.strictEqual(records[0].receiverName, 'InvoiceSettlementTransaction');
 	});
 
 	test('ignores a bare identifier followed by { with no receiver', () => {
@@ -291,7 +291,7 @@ suite('call_site_extractor', () => {
 
 suite('excludeDeclarationCallSites', () => {
 	test('removes the call site that matches a method declaration', () => {
-		const text = 'public void updateItemAsPaid(ReceivableAnticipationPartnerSettlementItem settlementItem) {';
+		const text = 'public void updateItemAsPaid(InvoiceSettlement settlementItem) {';
 		const callSites = analyzeSource(text, '/tmp/Widget.groovy').callSites;
 		const methods: ParsedMethod[] = [
 			{ name: 'updateItemAsPaid', line: 0, column: text.indexOf('updateItemAsPaid'), classFqn: 'Widget', sourcePath: '/tmp/Widget.groovy' }
@@ -350,7 +350,7 @@ suite('excludeDeclarationCallSites', () => {
 	});
 
 	test('keeps unrelated calls in other files untouched', () => {
-		const text = 'validateCommercialInfoUpdate(customerId, params)';
+		const text = 'validateProfileUpdate(customerId, params)';
 		const callSites = analyzeSource(text, '/tmp/Other.groovy').callSites;
 		const methods: ParsedMethod[] = [];
 		const filtered = excludeDeclarationCallSites(callSites, methods);

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { ClassIndexStore, indexJarFqns, IndexedType, MAX_INDEXED_CLASSES } from './class_index_store';
 import { hashWorkspaceBuildFiles, resolveGradleProjectRoot, resolveProjectClasspath } from './classpath_resolver';
@@ -7,6 +8,7 @@ import { CallSiteIndexStore } from './call_site_index_store';
 import { GrailsArtifactIndex } from './grails_artifact_index';
 import { ImportCodeActionProvider } from './import_code_action_provider';
 import { ImportCompletionProvider } from './import_completion_provider';
+import { CompileDiagnostics } from './compile_diagnostics';
 import { ImportOrderDiagnostics } from './import_order_diagnostics';
 import { GroovydocHoverProvider } from './groovydoc_hover_provider';
 import { IndexStatusBar } from './index_status';
@@ -28,6 +30,7 @@ interface CachedClasspath {
 	hash: string;
 	types: Array<{ simpleName: string; fqn: string }>;
 	jars?: string[];
+	allJars?: string[];
 }
 
 interface RefreshOptions {
@@ -59,6 +62,7 @@ export class ClassIndex implements vscode.Disposable {
 	private readonly referenceProvider = new ReferenceProvider(this.callSiteIndex, this.typeHierarchy);
 	private readonly renameProvider = new RenameProvider();
 	private readonly importOrderDiagnostics = new ImportOrderDiagnostics();
+	private compileDiagnostics: CompileDiagnostics | undefined;
 	private readonly disposables: vscode.Disposable[] = [];
 	private sourceTimer: ReturnType<typeof setTimeout> | undefined;
 	private classpathTimer: ReturnType<typeof setTimeout> | undefined;
@@ -80,8 +84,14 @@ export class ClassIndex implements vscode.Disposable {
 		this.statusBar.log('Code Groovy index started');
 
 		this.importOrderDiagnostics.start();
+		this.compileDiagnostics = new CompileDiagnostics(
+			path.join(context.extensionPath, 'out', 'compiler'),
+			message => this.statusBar?.log(message)
+		);
+		this.compileDiagnostics.start();
 		this.disposables.push(
 			this.importOrderDiagnostics,
+			this.compileDiagnostics,
 			vscode.languages.registerCompletionItemProvider(
 				{ language: 'groovy' },
 				this.completionProvider
@@ -321,19 +331,23 @@ export class ClassIndex implements vscode.Disposable {
 		if (!forceClasspath && cached?.hash === hash && cached.types?.length) {
 			this.store.removeBySource('jar');
 			this.store.add(cached.types.map(type => ({ ...type, source: 'jar' as const })));
-			if (cached.jars?.length) {
+			let compileJars = cached.allJars ?? [];
+			if (cached.jars?.length && cached.allJars?.length) {
 				this.lastClasspathJars = cached.jars;
 			} else {
 				const resolution = await resolveProjectClasspath(root);
 				this.lastClasspathJars = resolution.jars;
+				compileJars = resolution.allJars;
 				await context.workspaceState.update(CACHE_KEY, {
 					hash: cached.hash,
 					types: cached.types,
-					jars: resolution.jars
+					jars: resolution.jars,
+					allJars: resolution.allJars
 				});
-				this.statusBar?.log(`Classpath JAR list refreshed (${resolution.jars.length} JAR(s))`);
+				this.statusBar?.log(`Classpath JAR list refreshed (${resolution.allJars.length} JAR(s))`);
 			}
 			this.lastJarCount = this.lastClasspathJars.length;
+			this.compileDiagnostics?.setProjectClasspath(root, compileJars.length ? compileJars : this.lastClasspathJars);
 			this.classpathFromCache = true;
 			if (showProgress) {
 				this.statusBar?.beginClasspathFromCache(cached.types.length);
@@ -361,6 +375,7 @@ export class ClassIndex implements vscode.Disposable {
 		const jars = resolution.jars;
 		this.lastClasspathJars = jars;
 		this.lastJarCount = jars.length;
+		this.compileDiagnostics?.setProjectClasspath(root, resolution.allJars);
 		if (showProgress) {
 			this.statusBar?.beginJarScan(jars.length);
 		}
@@ -390,7 +405,8 @@ export class ClassIndex implements vscode.Disposable {
 			await context.workspaceState.update(CACHE_KEY, {
 				hash,
 				types: types.map(type => ({ simpleName: type.simpleName, fqn: type.fqn })),
-				jars
+				jars,
+				allJars: resolution.allJars
 			});
 		}
 

@@ -140,6 +140,11 @@
                     "type": "boolean",
                     "default": true,
                     "markdownDescription": "Show **Problems** warnings when Groovy `import` lines are not in the same order as **Organize imports** would use. Set to `false` to hide import-order warnings only (other diagnostics are unchanged)."
+                },
+                "codeGroovy.compile.diagnostics": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "Show Groovy compiler errors in the editor (**Problems** and underlines) on open and on save. Uses the project's Groovy version and classpath. Requires Java on `PATH`."
                 }
             }
         },
@@ -376,8 +381,8 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "compile": "tsc -p ./ && node scripts/compile-daemon.js",
+        "watch": "node scripts/compile-daemon.js && tsc -watch -p ./",
         "pretest": "npm run compile",
         "test:unit": "npm run compile && mocha --ui tdd 'out/test/unit/**/*.test.js'",
         "test": "npm run test:unit && node ./out/test/runTest.js"

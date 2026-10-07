@@ -34,19 +34,19 @@ suite('call_site_index_store', () => {
 	test('lookupByReceiver finds every call made on that receiver, regardless of method name', () => {
 		const store = new CallSiteIndexStore();
 		store.add([
-			record('where', 'AnticipationPartnerSettlementItemPixTransaction'),
-			record('createCriteria', 'AnticipationPartnerSettlementItemPixTransaction'),
+			record('where', 'InvoiceSettlementTransaction'),
+			record('createCriteria', 'InvoiceSettlementTransaction'),
 			record('save', 'otherService')
 		]);
-		const usages = store.lookupByReceiver('AnticipationPartnerSettlementItemPixTransaction');
+		const usages = store.lookupByReceiver('InvoiceSettlementTransaction');
 		assert.strictEqual(usages.length, 2);
 		assert.deepStrictEqual(usages.map(u => u.methodName).sort(), ['createCriteria', 'where']);
 	});
 
 	test('lookupByReceiver ignores calls with no receiver', () => {
 		const store = new CallSiteIndexStore();
-		store.add([record('validateCommercialInfoUpdate')]);
-		assert.strictEqual(store.lookupByReceiver('validateCommercialInfoUpdate').length, 0);
+		store.add([record('validateProfileUpdate')]);
+		assert.strictEqual(store.lookupByReceiver('validateProfileUpdate').length, 0);
 	});
 
 	test('lookupByReceiver is empty after clear()', () => {
