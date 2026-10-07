@@ -7,6 +7,7 @@ import {
 	isExcludedDirectory,
 	isExcludedRelativePath,
 	isLinkedWorktreeGitFile,
+	limitSourceFiles,
 	SOURCE_EXCLUDE_GLOB
 } from '../../groovy/source_exclusion';
 
@@ -50,7 +51,12 @@ suite('source_exclusion', () => {
 	test('recognizes the .git file of a linked worktree, not of a submodule', () => {
 		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: /work/app/.git/worktrees/feature-x\n'), true);
 		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: C:\\work\\app\\.git\\worktrees\\feature-x\r\n'), true);
+		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: ../../.git/worktrees/feature-x\n'), true);
+		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: /work/app/.git/modules/shared/worktrees/feature-x\n'), true);
+		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: /work/app.git/worktrees/feature-x\n'), true);
 		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: ../.git/modules/shared\n'), false);
+		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: /home/dev/worktrees/project\n'), false);
+		assert.strictEqual(isLinkedWorktreeGitFile('gitdir: /work/app/.git/modules/worktrees/feature-x\n'), false);
 		assert.strictEqual(isLinkedWorktreeGitFile('[core]\n\trepositoryformatversion = 0\n'), false);
 	});
 
@@ -72,9 +78,19 @@ suite('source_exclusion', () => {
 
 			const openedWorktree = createNestedWorktreeFilter([worktree]);
 			assert.strictEqual(openedWorktree(path.join(worktree, 'projects', 'core', 'Widget.groovy')), false);
+
+			const otherFolder = createNestedWorktreeFilter([path.join(root, 'projects')]);
+			assert.strictEqual(otherFolder(path.join(worktree, 'projects', 'core', 'Widget.groovy')), false);
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
+	});
+
+	test('applies the file limit after leaving out excluded files', () => {
+		const files = ['wt/A.groovy', 'wt/B.groovy', 'src/C.groovy', 'src/D.groovy', 'src/E.groovy'];
+		const insideWorktree = (filePath: string) => filePath.startsWith('wt/');
+		assert.deepStrictEqual(limitSourceFiles(files, insideWorktree, 2), ['src/C.groovy', 'src/D.groovy']);
+		assert.deepStrictEqual(limitSourceFiles(files, insideWorktree, 0), ['src/C.groovy', 'src/D.groovy', 'src/E.groovy']);
 	});
 
 	test('builds one glob with every excluded folder', () => {

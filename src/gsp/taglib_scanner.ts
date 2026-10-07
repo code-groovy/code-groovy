@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { createNestedWorktreeFilter, SOURCE_EXCLUDE_GLOB } from '../groovy/source_exclusion';
+import { SOURCE_EXCLUDE_GLOB } from '../groovy/source_exclusion';
+import { createWorkspaceWorktreeFilter } from '../groovy/source_file_discovery';
 import { parseTagLibSource, ProjectTagLibTag } from './taglib_parser';
 
 export type { ProjectTagLibTag } from './taglib_parser';
@@ -15,7 +16,7 @@ export async function scanWorkspaceTagLibs(
 		token
 	);
 
-	const insideNestedWorktree = createNestedWorktreeFilter((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath));
+	const insideNestedWorktree = createWorkspaceWorktreeFilter();
 	const tags: ProjectTagLibTag[] = [];
 	for (const file of files.filter(candidate => !insideNestedWorktree(candidate.fsPath))) {
 		if (token?.isCancellationRequested) {

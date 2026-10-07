@@ -4,7 +4,7 @@ import * as path from 'path';
 const EXCLUDED_DIRECTORY_NAMES = new Set(['node_modules', '.git', 'build', 'target', 'out']);
 const JAVA_OUTPUT_PARENT = 'bin';
 const JAVA_OUTPUT_DIRECTORY_NAMES = new Set(['main', 'test', 'default']);
-const LINKED_WORKTREE_GITDIR_RE = /^gitdir:.*[\\/]worktrees[\\/][^\\/\r\n]+\s*$/m;
+const LINKED_WORKTREE_GITDIR_RE = /^gitdir:.*\.git[\\/](?:modules[\\/](?:[^\\/\r\n]+[\\/])+)?worktrees[\\/][^\\/\r\n]+\s*$/m;
 
 export const SOURCE_EXCLUDE_GLOB = `**/{${[
 	...EXCLUDED_DIRECTORY_NAMES,
@@ -37,6 +37,11 @@ export function isLinkedWorktreeRoot(directory: string): boolean {
 	}
 }
 
+export function limitSourceFiles(filePaths: string[], isExcluded: (filePath: string) => boolean, maxFiles: number): string[] {
+	const kept = filePaths.filter(filePath => !isExcluded(filePath));
+	return maxFiles > 0 ? kept.slice(0, maxFiles) : kept;
+}
+
 export function createNestedWorktreeFilter(workspaceRoots: readonly string[]): (filePath: string) => boolean {
 	const roots = new Set(workspaceRoots.map(root => path.resolve(root)));
 	const insideByDirectory = new Map<string, boolean>();
@@ -52,5 +57,8 @@ export function createNestedWorktreeFilter(workspaceRoots: readonly string[]): (
 		}
 		return inside;
 	};
-	return filePath => isInside(path.dirname(path.resolve(filePath)));
+	return filePath => {
+		const resolved = path.resolve(filePath);
+		return [...roots].some(root => resolved.startsWith(root + path.sep)) && isInside(path.dirname(resolved));
+	};
 }

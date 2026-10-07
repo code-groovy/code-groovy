@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { collectGrailsModuleSourceFiles, detectGrailsModules, GrailsModule } from './grails_module_detector';
-import { createNestedWorktreeFilter, SOURCE_EXCLUDE_GLOB } from './source_exclusion';
+import { createNestedWorktreeFilter, limitSourceFiles, SOURCE_EXCLUDE_GLOB } from './source_exclusion';
 
 export interface SourceFileDiscovery {
 	filePaths: string[];
@@ -31,7 +31,10 @@ async function scanSourceFiles(): Promise<SourceFileDiscovery> {
 		return { filePaths: await collectGrailsModuleSourceFiles(grailsModules), grailsModules };
 	}
 	const maxFiles = configuration.get<number>('index.maxSourceFiles', 0);
-	const files = await vscode.workspace.findFiles('**/*.{groovy,java}', SOURCE_EXCLUDE_GLOB, maxFiles > 0 ? maxFiles : undefined);
-	const insideNestedWorktree = createNestedWorktreeFilter((workspaceFolders ?? []).map(folder => folder.uri.fsPath));
-	return { filePaths: files.map(file => file.fsPath).filter(filePath => !insideNestedWorktree(filePath)), grailsModules };
+	const files = await vscode.workspace.findFiles('**/*.{groovy,java}', SOURCE_EXCLUDE_GLOB);
+	return { filePaths: limitSourceFiles(files.map(file => file.fsPath), createWorkspaceWorktreeFilter(), maxFiles), grailsModules };
+}
+
+export function createWorkspaceWorktreeFilter(): (filePath: string) => boolean {
+	return createNestedWorktreeFilter((vscode.workspace.workspaceFolders ?? []).map(folder => folder.uri.fsPath));
 }
