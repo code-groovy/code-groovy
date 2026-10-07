@@ -4,6 +4,8 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+
+## [0.2.6] - 2026-10-07
 - Skip the `bin/main`, `bin/test` and `bin/default` output folders that the Java language server (Language Support for Java) creates next to Gradle projects, so copies of the sources there no longer show up as duplicate Go to Definition (Ctrl+Click / Cmd+Click) targets or usages; other `bin` folders are still indexed
 
 ## [0.2.5] - 2026-10-02
