@@ -17,6 +17,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Declare Language Support for Java and Debugger for Java as extension dependencies in `package.json`
 - Open the browser when the app HTTP endpoint responds after bootRun
 
+## [0.2.6] - 2026-10-07
+- Skip the `bin/main`, `bin/test` and `bin/default` output folders that the Java language server (Language Support for Java) creates next to Gradle projects, so copies of the sources there no longer show up as duplicate Go to Definition (Ctrl+Click / Cmd+Click) targets or usages; other `bin` folders are still indexed
+
 ## [0.2.5] - 2026-10-02
 - Jump from a method or class declaration to where it's used (Go to Definition — Ctrl+Click, Cmd+Click on macOS), mirroring IntelliJ's "Go to Declaration or Usages", including overloaded methods and constructors
 - Support Find All References for Groovy (`Shift+F12`) on methods and classes, using the same lookup as Go to Definition, backed by an in-memory call-site index and a per-class file index built during the existing indexing pass — once the index is ready, a request only reads the files that mention the class instead of the whole workspace; from a call site it reads the receiver the same way as the index (`super.method()` targets the superclass, a receiver on the previous line is used, a chain of typed properties such as `order.status?.isFinished()` is resolved field by field, and the end of a call chain falls back to the current file)

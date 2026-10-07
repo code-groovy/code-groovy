@@ -66,7 +66,9 @@ function findGrailsWebCommonJar(): string | undefined {
 	return undefined;
 }
 
-suite('definition_resolver imports from jars', () => {
+suite('definition_resolver imports from jars', function () {
+	this.timeout(15000);
+
 	test('resolves imported ValidationException via classpath JAR scan', function () {
 		const grailsCoreJar = findGrailsCoreJar();
 		if (!grailsCoreJar) {

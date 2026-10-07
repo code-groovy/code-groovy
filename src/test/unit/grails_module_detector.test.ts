@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
 	collectGrailsModuleSourceFiles,
+	collectSourceFilesFromDirectory,
 	detectGrailsModules,
 	findGrailsMonorepoRoot
 } from '../../groovy/grails_module_detector';
@@ -40,6 +41,24 @@ suite('grails_module_detector', () => {
 			assert.ok(files.length >= 2);
 			assert.ok(files.some(file => file.endsWith('WidgetController.groovy')));
 			assert.ok(files.some(file => file.endsWith('Widget.groovy')));
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test('skips Java language server output folders but keeps other bin folders', async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-groovy-bin-'));
+		try {
+			writeFile(path.join(root, 'services', 'Widget.groovy'), 'class Widget {}\n');
+			writeFile(path.join(root, 'bin', 'main', 'Widget.groovy'), 'class Widget {}\n');
+			writeFile(path.join(root, 'bin', 'test', 'WidgetSpec.groovy'), 'class WidgetSpec {}\n');
+			writeFile(path.join(root, 'bin', 'default', 'Widget.groovy'), 'class Widget {}\n');
+			writeFile(path.join(root, 'bin', 'Deploy.groovy'), 'class Deploy {}\n');
+			writeFile(path.join(root, 'scripts', 'main', 'Task.groovy'), 'class Task {}\n');
+
+			const files = (await collectSourceFilesFromDirectory(root)).map(file => path.relative(root, file).split(path.sep).join('/'));
+
+			assert.deepStrictEqual(files, ['bin/Deploy.groovy', 'scripts/main/Task.groovy', 'services/Widget.groovy']);
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });
 		}
