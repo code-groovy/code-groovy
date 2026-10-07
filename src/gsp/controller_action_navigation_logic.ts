@@ -36,10 +36,8 @@ const LINK_METHODS = new Set([
 	'redirect', 'remoteFunction', 'remoteLink', 'sortableColumn', 'submitToRemote', 'uploadForm'
 ]);
 const VIEW_METHODS = new Set(['render', 'respond']);
-const GSP_LINK_TAGS = new Set([
-	'actionSubmit', 'createLink', 'form', 'formRemote', 'include', 'link', 'paginate', 'remoteFunction',
-	'remoteLink', 'sortableColumn', 'submitToRemote', 'uploadForm'
-]);
+const CONTROLLER_ONLY_METHODS = new Set(['chain', 'forward', 'redirect']);
+const GSP_LINK_TAGS = new Set([...LINK_METHODS].filter(method => !CONTROLLER_ONLY_METHODS.has(method)));
 const NAMED_ARG_KEY_RE = /\b(controller|action|view)\s*:/g;
 const QUICK_KEY_RE = /\b(?:controller|action|view)\s*[:=]/;
 const QUOTED_LITERAL_RE = /^[ \t]*(["'])([^"'$\\\r\n]*)\1(?=[ \t]*(?:[,;)\]}\r\n]|\/[/*]|$))/;
@@ -353,7 +351,11 @@ function viewTargets(view: string, controllerName: string | undefined, context: 
 		...(ownRoot ? [ownRoot] : []),
 		...(context.workspaceRoot ? collectGrailsAppRoots(context.workspaceRoot) : [])
 	])];
-	const found = roots.map(root => path.join(root, 'views', file)).find(candidate => fs.existsSync(candidate));
+	const found = roots
+		.map(root => path.join(root, 'views'))
+		.map(views => ({ views, candidate: path.join(views, file) }))
+		.find(({ views, candidate }) => candidate.startsWith(views + path.sep) && fs.existsSync(candidate))
+		?.candidate;
 	return found ? [{ uri: found, line: 0, column: 0, label: view }] : [];
 }
 

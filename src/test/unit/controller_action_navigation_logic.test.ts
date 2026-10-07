@@ -59,7 +59,8 @@ const PROJECT_FILES: Record<string, string> = {
 	'web/grails-app/views/bill/_list.gsp': '<p>template</p>\n',
 	'web/grails-app/views/bill/templates/_row.gsp': '<p>row</p>\n',
 	'web/grails-app/views/shared/detail.gsp': '<p>detail</p>\n',
-	'web/grails-app/views/layouts/main.gsp': '<p>layout</p>\n'
+	'web/grails-app/views/layouts/main.gsp': '<p>layout</p>\n',
+	'web/grails-app/outside.gsp': '<p>outside</p>\n'
 };
 
 function at(text: string, marker: string, delta = 1): number {
@@ -284,6 +285,16 @@ suite('controller_action_navigation_logic', () => {
 			assert.deepStrictEqual(relative.map(target => target.uri), [file('web/grails-app/views/bill/list.gsp')]);
 			const absolute = resolveGroovy(BILL_CONTROLLER, at(BILL_CONTROLLER, '"/shared'), controller);
 			assert.deepStrictEqual(absolute.map(target => target.uri), [file('web/grails-app/views/shared/detail.gsp')]);
+		});
+
+		test('opens a view relative to another folder but not a file outside the views folder', () => {
+			const controller = 'web/grails-app/controllers/com/example/BillController.groovy';
+			const sibling = 'render(view: "../shared/detail")';
+			assert.deepStrictEqual(resolveGroovy(sibling, at(sibling, '"../'), controller).map(target => target.uri), [
+				file('web/grails-app/views/shared/detail.gsp')
+			]);
+			const outside = 'render(view: "/a/../../outside")';
+			assert.deepStrictEqual(resolveGroovy(outside, at(outside, '"/a'), controller), []);
 		});
 
 		test('opens the view of respond after a positional argument', () => {
