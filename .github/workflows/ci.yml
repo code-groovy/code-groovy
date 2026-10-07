@@ -25,6 +25,11 @@ jobs:
           node-version: 24
           cache: npm
 
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 11
+
       - run: npm ci
 
       - name: Unit tests

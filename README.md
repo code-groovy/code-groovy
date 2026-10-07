@@ -33,6 +33,7 @@ Groovy, Grails and GSP language support for Visual Studio Code and Cursor.
 - Groovydoc and Javadoc rendered as Markdown on hover.
 - Rename (`F2`) for identifiers within the current Groovy file, skipping comments and strings.
 - Groovy code snippets.
+- **Compiler diagnostics** on open and on save: errors from the project's Groovy compiler (syntax, unresolved classes, scope, class structure, and `@CompileStatic` / `@TypeChecked`) show up as underlines and in the Problems panel. Turn off with `codeGroovy.compile.diagnostics`.
 
 ### Syntax highlighting
 
@@ -70,6 +71,7 @@ Keybindings are active only while a `.groovy` or `.gsp` editor has focus.
 | `codeGroovy.index.maxSourceFiles` | `0` | Maximum workspace `.groovy` / `.java` files to index when Grails module detection is **not** in use. `0` means no limit. |
 | `codeGroovy.modules` | `["domain", "web", "api"]` | Gradle submodules to index when a `settings.gradle` is found. |
 | `codeGroovy.importOrder.warnings` | `true` | Warn in **Problems** when imports are out of order (same order as **Organize imports**). Set `false` to turn off those warnings only. |
+| `codeGroovy.compile.diagnostics` | `true` | Show Groovy compiler errors in the editor on open and on save. Uses the project's Groovy. Set `false` to turn the compiler diagnostics off. |
 
 ## Debug
 
@@ -106,6 +108,7 @@ Syntax highlighting, snippets and GSP support work once Code Groovy is installed
 - Breakpoints in `.gsp` are not supported.
 - The default keybindings shadow VS Code's *Go to Symbol in Editor* (`Cmd/Ctrl+Shift+O`) and *Run and Debug* view (`Cmd/Ctrl+Shift+D`) while a Groovy or GSP file is focused. Rebind them in *Keyboard Shortcuts* if you prefer the defaults.
 - On very large workspaces the first index can take a while. Narrow it down with `codeGroovy.modules`, or cap it with `codeGroovy.index.maxSourceFiles`.
+- Compiler diagnostics report the errors from the first failing compilation phase of that file, and the Groovy 2 parser reports the first syntax error. Classes from other files resolve from the last build (`build/classes` or `target/classes`), so a new method in another file shows up after that file is built.
 
 ## Development
 

@@ -93,11 +93,11 @@ suite('isInsideDocLink — @see and @throws', () => {
 
 suite('isImportLine', () => {
 	test('matches a plain import statement', () => {
-		assert.strictEqual(isImportLine('import com.asaas.domain.receivableanticipationpartner.AnticipationPartnerSettlementItemPixTransaction'), true);
+		assert.strictEqual(isImportLine('import com.example.billing.InvoiceSettlementTransaction'), true);
 	});
 
 	test('matches an indented import statement', () => {
-		assert.strictEqual(isImportLine('    import com.asaas.Widget'), true);
+		assert.strictEqual(isImportLine('    import com.example.Widget'), true);
 	});
 
 	test('does not match a line that merely contains the word import', () => {
@@ -105,7 +105,7 @@ suite('isImportLine', () => {
 	});
 
 	test('does not match an unrelated line', () => {
-		assert.strictEqual(isImportLine('AnticipationPartnerSettlementItemPixTransaction.where {'), false);
+		assert.strictEqual(isImportLine('InvoiceSettlementTransaction.where {'), false);
 	});
 });
 
@@ -199,7 +199,7 @@ suite('splitLines and lineStartOffsets', () => {
 });
 
 suite('findWordMatches', () => {
-	const word = 'AnticipationPartnerSettlementItemPixTransaction';
+	const word = 'InvoiceSettlementTransaction';
 
 	test('skips a word inside a // comment', () => {
 		assert.deepStrictEqual(findWordMatches(`// ${word} is unused now`, word), []);
@@ -219,7 +219,7 @@ suite('findWordMatches', () => {
 	});
 
 	test('skips import lines', () => {
-		assert.deepStrictEqual(findWordMatches(`import com.asaas.${word}\n${word}.get(1)`, word), [{ line: 1, column: 0 }]);
+		assert.deepStrictEqual(findWordMatches(`import com.example.${word}\n${word}.get(1)`, word), [{ line: 1, column: 0 }]);
 	});
 
 	test('scopes by receiver, accepting safe navigation', () => {
