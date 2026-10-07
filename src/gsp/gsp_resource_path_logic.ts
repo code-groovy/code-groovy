@@ -201,7 +201,7 @@ function extensionsForMethod(method: string | undefined): string[] {
 	}
 }
 
-function collectGrailsAppRoots(workspaceRoot: string): string[] {
+export function collectGrailsAppRoots(workspaceRoot: string): string[] {
 	const roots: string[] = [];
 	const seen = new Set<string>();
 	const push = (dir: string) => {
