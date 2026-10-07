@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { CallSiteIndexStore } from './call_site_index_store';
 import { findWordMatches } from './text_scan_logic';
-import { toVscodeLocation, wordScanner } from './usage_locations';
+import { propertyScanner, toVscodeLocation, wordScanner } from './usage_locations';
 import { collectUsageLocations, declarationLocations, findReferenceTarget, isDeclarationAt, resolveUsages, UsageHierarchy } from './usage_lookup_logic';
 
 export class ReferenceProvider implements vscode.ReferenceProvider {
@@ -32,7 +32,7 @@ export class ReferenceProvider implements vscode.ReferenceProvider {
 		const isDeclaration = isDeclarationAt(documentText, document.uri.fsPath, line, word, wordRange.start.character);
 		const resolution = resolveUsages(target, this.callSiteIndex, 'references', this.hierarchy);
 		const declaration = isDeclaration ? { sourcePath: document.uri.fsPath, line, column: wordRange.start.character } : undefined;
-		const usages = (await collectUsageLocations(target, resolution, 'references', word, wordScanner(token), declaration)).map(toVscodeLocation);
+		const usages = (await collectUsageLocations(target, resolution, 'references', word, wordScanner(token), declaration, propertyScanner(token))).map(toVscodeLocation);
 		if (!context.includeDeclaration) {
 			return usages;
 		}

@@ -4,6 +4,7 @@ import { analyzeSource, excludeDeclarationCallSites } from '../../groovy/call_si
 import { constructorDeclarations, parseDocumentSymbols } from '../../groovy/symbol_parser';
 import { parseImports } from '../../groovy/class_parser';
 import { findWordMatches } from '../../groovy/text_scan_logic';
+import { PropertyScan, propertyReadLocations } from '../../groovy/property_access_logic';
 import { TypeHierarchyStore } from '../../groovy/type_hierarchy_store';
 import {
 	collectUsageLocations,
@@ -610,5 +611,127 @@ suite('resolveUsages — enum constants', () => {
 		const userText = files['/w/User.groovy'];
 		assert.deepStrictEqual(findReferenceTarget(userText, '/w/User.groovy', 2, userText.split('\n')[2].indexOf('RED'), 'RED', hierarchy),
 			{ kind: 'constant', name: 'RED', typeName: 'Alert', typeFqn: 'Alert' });
+	});
+});
+
+suite('getters used as properties', () => {
+	const files: Record<string, string> = {
+		'/w/Invoice.groovy': [
+			'class Invoice {',
+			'    String code',
+			'    String getReceiptCode() {',
+			'        return "R-${code}"',
+			'    }',
+			'    String summary() {',
+			'        return this.receiptCode',
+			'    }',
+			'}'
+		].join('\n'),
+		'/w/Refund.groovy': 'class Refund {\n    String getReceiptCode() {\n        return "F"\n    }\n}',
+		'/w/BillingService.groovy': [
+			'class BillingService {',
+			'    def run(Invoice invoice, Refund refund, def anything) {',
+			'        println invoice.receiptCode',
+			'        println refund.receiptCode',
+			'        println anything.receiptCode',
+			'        println invoice.getReceiptCode()',
+			'        invoice.receiptCode = "x"',
+			'    }',
+			'}'
+		].join('\n')
+	};
+	const index = buildIndex(files);
+	const hierarchy = buildHierarchy(files);
+	const noWords = async (): Promise<UsageLocation[]> => [];
+	const scanProperties = async (scan: PropertyScan): Promise<UsageLocation[]> =>
+		scan.files.flatMap(sourcePath => propertyReadLocations(files[sourcePath], sourcePath, scan));
+	const describeLocations = (locations: UsageLocation[]) => locations.map(location => `${location.sourcePath}:${location.line}:${location.column}:${location.length}`).sort();
+	const getterDeclaration = { sourcePath: '/w/Invoice.groovy', line: 2, column: 11 };
+
+	test('Cmd+Click on the getter lists the explicit call and the property reads of the same class only', async () => {
+		const target = findDeclarationTarget(files['/w/Invoice.groovy'], '/w/Invoice.groovy', 2, 'getReceiptCode', 11);
+		assert.ok(target);
+		const resolution = resolveUsages(target, index, 'navigate', hierarchy);
+		const usages = await collectUsageLocations(target, resolution, 'navigate', 'getReceiptCode', noWords, getterDeclaration, scanProperties);
+		assert.deepStrictEqual(describeLocations(usages), [
+			'/w/BillingService.groovy:2:24:11',
+			'/w/BillingService.groovy:5:24:14',
+			'/w/Invoice.groovy:6:20:11'
+		]);
+	});
+
+	test('a getter only read as a property still has usages', async () => {
+		const target = findDeclarationTarget(files['/w/Refund.groovy'], '/w/Refund.groovy', 1, 'getReceiptCode', 11);
+		assert.ok(target);
+		const resolution = resolveUsages(target, index, 'navigate', hierarchy);
+		const usages = await collectUsageLocations(target, resolution, 'navigate', 'getReceiptCode', noWords, { sourcePath: '/w/Refund.groovy', line: 1, column: 11 }, scanProperties);
+		assert.deepStrictEqual(describeLocations(usages), ['/w/BillingService.groovy:3:23:11']);
+	});
+
+	test('Find All References from a property read targets the getter of the receiver type', async () => {
+		const service = files['/w/BillingService.groovy'];
+		const target = findReferenceTarget(service, '/w/BillingService.groovy', 2, 24, 'receiptCode', hierarchy);
+		assert.deepStrictEqual(target, { kind: 'method', name: 'getReceiptCode', className: 'Invoice' });
+		const resolution = resolveUsages(target!, index, 'references', hierarchy);
+		const usages = await collectUsageLocations(target!, resolution, 'references', 'receiptCode', noWords, undefined, scanProperties);
+		assert.deepStrictEqual(describeLocations(usages), [
+			'/w/BillingService.groovy:2:24:11',
+			'/w/BillingService.groovy:5:24:14',
+			'/w/Invoice.groovy:6:20:11'
+		]);
+		assert.deepStrictEqual(describeLocations(declarationLocations(target!, 'receiptCode', hierarchy)), ['/w/Invoice.groovy:2:11:14']);
+	});
+
+	test('Find All References keeps a real field and an untyped receiver out of the getter', () => {
+		const service = files['/w/BillingService.groovy'];
+		assert.strictEqual(findReferenceTarget(service, '/w/BillingService.groovy', 4, 25, 'receiptCode', hierarchy), undefined);
+		const withField = 'class Report {\n    def run(Invoice invoice) {\n        println invoice.code\n    }\n}';
+		assert.strictEqual(findReferenceTarget(withField, '/w/Report.groovy', 2, 24, 'code', hierarchy), undefined);
+	});
+});
+
+suite('getters used as properties — supertype fallback', () => {
+	const base = 'class BaseDocument {\n    String getTitle() {\n        return "base"\n    }\n}';
+	const child = 'class Contract extends BaseDocument {\n    @Override\n    String getTitle() {\n        return "contract"\n    }\n}';
+	const scanFiles = (files: Record<string, string>) => async (scan: PropertyScan): Promise<UsageLocation[]> =>
+		scan.files.flatMap(sourcePath => files[sourcePath] ? propertyReadLocations(files[sourcePath], sourcePath, scan) : []);
+	const usagesOf = async (files: Record<string, string>) => {
+		const index = buildIndex(files);
+		const hierarchy = buildHierarchy(files);
+		const target = findDeclarationTarget(files['/w/Contract.groovy'], '/w/Contract.groovy', 2, 'getTitle', 11);
+		assert.ok(target);
+		const resolution = resolveUsages(target, index, 'navigate', hierarchy);
+		const usages = await collectUsageLocations(target, resolution, 'navigate', 'getTitle', async () => [], { sourcePath: '/w/Contract.groovy', line: 2, column: 11 }, scanFiles(files));
+		return usages.map(location => `${location.sourcePath}:${location.line}`);
+	};
+
+	test('an override that nothing calls or reads still falls back to the supertype declaration', async () => {
+		assert.deepStrictEqual(await usagesOf({ '/w/BaseDocument.groovy': base, '/w/Contract.groovy': child }), ['/w/BaseDocument.groovy:1']);
+	});
+
+	test('an override read as a property lists the read instead of the supertype', async () => {
+		const reader = 'class Printer {\n    def print(Contract contract) {\n        println contract.title\n    }\n}';
+		assert.deepStrictEqual(
+			await usagesOf({ '/w/BaseDocument.groovy': base, '/w/Contract.groovy': child, '/w/Printer.groovy': reader }),
+			['/w/Printer.groovy:2']
+		);
+	});
+});
+
+suite('getters used as properties — fields inside the class', () => {
+	test('this.field inside the declaring class reads the field, not the getter', async () => {
+		const files: Record<string, string> = {
+			'/w/Channel.groovy': 'class Channel {\n    String code\n    String getCode() {\n        return code.toUpperCase()\n    }\n    String label() {\n        return this.code\n    }\n}',
+			'/w/Panel.groovy': 'class Panel {\n    def show(Channel channel) {\n        println channel.code\n    }\n}'
+		};
+		const index = buildIndex(files);
+		const hierarchy = buildHierarchy(files);
+		const target = findDeclarationTarget(files['/w/Channel.groovy'], '/w/Channel.groovy', 2, 'getCode', 11);
+		assert.ok(target);
+		const resolution = resolveUsages(target, index, 'navigate', hierarchy);
+		const scan = async (propertyScan: PropertyScan): Promise<UsageLocation[]> =>
+			propertyScan.files.flatMap(sourcePath => propertyReadLocations(files[sourcePath], sourcePath, propertyScan));
+		const usages = await collectUsageLocations(target, resolution, 'navigate', 'getCode', async () => [], { sourcePath: '/w/Channel.groovy', line: 2, column: 11 }, scan);
+		assert.deepStrictEqual(usages.map(location => `${location.sourcePath}:${location.line}`), ['/w/Panel.groovy:2']);
 	});
 });

@@ -4,6 +4,7 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+- Go to Definition (Ctrl+Click / Cmd+Click) on a property read such as `invoice.receiptCode` or `invoice?.overdue` opens the `getReceiptCode()` or `isOverdue()` getter when the class has no field with that name, resolving the receiver by its declared type, a property chain, `this` or a class name (never by the naming convention alone); Go to Definition on a getter declaration and Find All References now also list those property reads, scoped to the declaring class and its subclasses, so same-named getters of other classes are left out
 
 ## [0.2.5] - 2026-10-02
 - Jump from a method or class declaration to where it's used (Go to Definition — Ctrl+Click, Cmd+Click on macOS), mirroring IntelliJ's "Go to Declaration or Usages", including overloaded methods and constructors

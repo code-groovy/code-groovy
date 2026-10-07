@@ -18,7 +18,9 @@ const FIXTURE_FILES = [
 	'WidgetController.groovy',
 	'WidgetKind.groovy',
 	'WidgetState.groovy',
-	'WidgetBox.groovy'
+	'WidgetBox.groovy',
+	'Invoice.groovy',
+	'Refund.groovy'
 ];
 
 function loadFixture(name: string): string {
@@ -441,5 +443,61 @@ suite('types declared in another file than their name', () => {
 	test('finds the constant of a nested enum and of an enum whose file has another name', () => {
 		assert.deepStrictEqual(at(3, 'OPEN'), ['Holder.groovy:3:2']);
 		assert.deepStrictEqual(at(4, 'TWO'), ['Mismatch.groovy:3:1']);
+	});
+});
+
+suite('getters used as properties', () => {
+	const source = [
+		'package com.example.fixture.web',
+		'import com.example.fixture.domain.Invoice',
+		'class BillingController {',
+		'    def show(Invoice invoice, def anything) {',
+		'        println invoice.receiptCode',
+		'        println invoice?.overdue',
+		'        println invoice.code',
+		'        println anything.receiptCode',
+		'        invoice.receiptCode = "x"',
+		'        println invoice.receiptCode()',
+		'    }',
+		'}'
+	].join('\n');
+	const sourcePath = path.join(fixturesRoot, 'BillingController.groovy');
+	const lines = source.split('\n');
+	const invoiceLines = loadFixture('Invoice.groovy').split('\n');
+	const lineOf = (pattern: RegExp) => invoiceLines.findIndex(text => pattern.test(text));
+	const at = (line: number, word: string) => buildContext(source, sourcePath, line, word, lines[line].lastIndexOf(word))
+		.map(target => [path.basename(target.uri), target.line]);
+
+	test('opens the getter of the receiver type, not a same-named getter of another class', () => {
+		assert.deepStrictEqual(at(4, 'receiptCode'), [['Invoice.groovy', lineOf(/String getReceiptCode\(\)/)]]);
+	});
+
+	test('opens an is-getter through safe navigation', () => {
+		assert.deepStrictEqual(at(5, 'overdue'), [['Invoice.groovy', lineOf(/Boolean isOverdue\(\)/)]]);
+	});
+
+	test('keeps a real field ahead of its getter', () => {
+		assert.deepStrictEqual(at(6, 'code'), [['Invoice.groovy', lineOf(/^\s*String code$/)]]);
+	});
+
+	test('does not translate the property of an untyped receiver', () => {
+		assert.deepStrictEqual(at(7, 'receiptCode'), []);
+	});
+
+	test('does not translate an assignment or a method call into a getter', () => {
+		assert.deepStrictEqual(at(8, 'receiptCode'), []);
+		assert.deepStrictEqual(at(9, 'receiptCode'), []);
+	});
+
+	test('opens the getter of the class itself through this', () => {
+		const own = [
+			'class Statement {',
+			'    String getTitle() { return "t" }',
+			'    def print() { println this.title }',
+			'}'
+		].join('\n');
+		const ownLines = own.split('\n');
+		const targets = buildContext(own, path.join(fixturesRoot, 'Statement.groovy'), 2, 'title', ownLines[2].lastIndexOf('title'));
+		assert.deepStrictEqual(targets.map(target => target.line), [1]);
 	});
 });

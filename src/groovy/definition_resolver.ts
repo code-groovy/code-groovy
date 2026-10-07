@@ -4,6 +4,7 @@ import { ClassIndexStore, packageNameFromFqn, simpleNameFromFqn } from './class_
 import { parseImportEntries, parseImports, parsePackageName, resolveTypeName } from './class_parser';
 import { resolveDeclarationPosition } from './declaration_position';
 import { findGrailsSourceForFqn } from './fqn_source_resolver';
+import { declaresNoParameters, getterNamesForProperty, isPropertyRead } from './property_access_logic';
 import { GrailsArtifactIndex } from './grails_artifact_index';
 import { findFieldInClassHierarchy, findMethodInClassHierarchy, preferReferencedEntries } from './method_navigation_logic';
 import { candidateClassNamesForReceiver, serviceBeanToClassName } from './service_bean';
@@ -54,6 +55,11 @@ export function resolveDefinitions(context: DefinitionContext): DefinitionTarget
 	const fieldTargets = resolveFieldTargets(request);
 	if (fieldTargets.length > 0) {
 		return fieldTargets;
+	}
+
+	const getterTargets = resolveGetterTargets(request);
+	if (getterTargets.length > 0) {
+		return getterTargets;
 	}
 
 	const constantTargets = resolveConstantTargets(request);
@@ -191,6 +197,52 @@ function resolveFieldTargets(request: DefinitionRequest): DefinitionTarget[] {
 		return resolveOwnFieldTarget(request, fieldName);
 	}
 	return firstFound(receiverTypeCandidates(request, receiver), className => findFieldInArtifactHierarchy(context, className, fieldName));
+}
+
+function resolveGetterTargets(request: DefinitionRequest): DefinitionTarget[] {
+	const { context, receiver } = request;
+	const propertyName = context.word;
+	const lineText = request.analysis.maskedLines[context.line] ?? '';
+	if (!propertyName || /^[A-Z]/.test(propertyName) || receiver.kind !== 'name' || receiver.name === 'super'
+		|| !isPropertyRead(lineText, context.wordStart + propertyName.length)) {
+		return [];
+	}
+	const getters = getterNamesForProperty(propertyName);
+	if (receiver.name === 'this') {
+		const own = request.analysis.symbols.methods.filter(method => getters.includes(method.name)
+			&& (!request.owner || method.classFqn === request.owner.fqn)
+			&& declaresNoParameters(request.analysis.maskedLines[method.line] ?? '', method.name));
+		if (own.length > 0) {
+			return own.map(method => ({ uri: context.sourcePath, line: method.line, column: method.column, label: method.name }));
+		}
+		return firstFound(ownerParents(request), parent => findGetterInArtifactHierarchy(context, parent, getters));
+	}
+	return firstFound(resolvedReceiverTypes(request, receiver), className => findGetterInArtifactHierarchy(context, className, getters));
+}
+
+function resolvedReceiverTypes(request: DefinitionRequest, receiver: { name: string; chain?: string[] }): string[] {
+	if (receiver.chain) {
+		const chainType = resolveReceiverChainType(request, receiver.chain);
+		return chainType ? [chainType] : [];
+	}
+	if (/^[A-Z]/.test(receiver.name)) {
+		return [receiver.name];
+	}
+	const declaredType = request.analysis.resolveType(receiver.name, request.context.line);
+	return declaredType ? [simpleNameFromFqn(declaredType)] : [];
+}
+
+function findGetterInArtifactHierarchy(context: DefinitionContext, className: string, getters: string[]): DefinitionTarget[] {
+	for (const getter of getters) {
+		const found = findMethodInArtifactHierarchy(context, className, getter).filter(target => {
+			const declarationLine = target.uri.includes('jar:') ? undefined : splitLines(readFileSafe(target.uri) ?? '')[target.line];
+			return declarationLine === undefined || declaresNoParameters(declarationLine, getter);
+		});
+		if (found.length > 0) {
+			return found;
+		}
+	}
+	return [];
 }
 
 function resolveOwnFieldTarget(request: DefinitionRequest, fieldName: string): DefinitionTarget[] {
