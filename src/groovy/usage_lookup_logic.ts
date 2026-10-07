@@ -2,14 +2,14 @@ import * as path from 'path';
 import { analyzeDocument, CallSiteRecord, receiverAt, receiverBefore, receiverChain, resolveChainRootType, resolveReceiverType } from './call_site_extractor';
 import { simpleNameFromFqn } from './class_index_store';
 import { MAX_HIERARCHY_DEPTH, parseImports, resolveTypeName } from './class_parser';
-import { getterNamesForProperty, isPropertyRead, PropertyScan, propertyNameForGetter } from './property_access_logic';
+import { declaresNoParameters, getterNamesForProperty, isPropertyRead, PropertyScan, propertyNameForGetter } from './property_access_logic';
 import { classNameForBean, grailsFieldNameForClass } from './service_bean';
 import { ParsedClassSymbol } from './symbol_parser';
 import { MethodDeclaration } from './type_hierarchy_store';
 
 export type UsageTarget =
 	| { kind: 'class'; name: string; classFqn?: string }
-	| { kind: 'method'; name: string; className: string; classFqn?: string; chain?: ReceiverChain }
+	| { kind: 'method'; name: string; className: string; classFqn?: string; chain?: ReceiverChain; withParameters?: true }
 	| { kind: 'constant'; name: string; typeName: string; typeFqn?: string };
 
 export interface ReceiverChain {
@@ -83,7 +83,8 @@ export function findDeclarationTarget(
 	word: string,
 	wordStart?: number
 ): UsageTarget | undefined {
-	const symbols = analyzeDocument(documentText, sourcePath).symbols;
+	const analysis = analyzeDocument(documentText, sourcePath);
+	const symbols = analysis.symbols;
 	const atWord = (column: number) => wordStart === undefined || column === wordStart;
 	const declaredClass = symbols.classes.find(cls => cls.line === line && cls.simpleName === word && atWord(cls.column));
 	if (declaredClass) {
@@ -102,7 +103,8 @@ export function findDeclarationTarget(
 	if (word === className) {
 		return { kind: 'class', name: word, classFqn: method.classFqn };
 	}
-	return { kind: 'method', name: word, className, classFqn: method.classFqn };
+	const withParameters = propertyNameForGetter(word) !== undefined && !declaresNoParameters(analysis.maskedLines[line] ?? '', word);
+	return { kind: 'method', name: word, className, classFqn: method.classFqn, ...(withParameters ? { withParameters: true as const } : {}) };
 }
 
 export function isDeclarationAt(documentText: string, sourcePath: string, line: number, word: string, wordStart: number): boolean {
@@ -211,7 +213,7 @@ export function resolveUsages(
 		: undefined;
 	const scope = buildScope(chainType ? { name: target.name, className: chainType } : target, hierarchy);
 	const records = index.lookup(target.name).filter(record => isScopedCall(record, scope));
-	const propertyScans = propertyScansFor(target.name, scope, index, hierarchy);
+	const propertyScans = target.withParameters ? [] : propertyScansFor(target.name, scope, index, hierarchy);
 	const superDeclarations = records.length > 0 || !hierarchy
 		? []
 		: scope.ancestorsDeclaring.flatMap(ancestor => hierarchy.methodDeclarations(ancestor, target.name));
@@ -519,7 +521,7 @@ function propertyScansFor(
 		return [];
 	}
 	const readsOwnField = (read: CallSiteRecord) => read.receiverName === 'this' && read.ownerClass !== undefined
-		&& hierarchy?.memberType?.(read.ownerClass, propertyName) !== undefined;
+		&& hierarchy !== undefined && hasFieldInHierarchy(hierarchy, [read.ownerClass], propertyName);
 	return [{ scope: 'properties', propertyName, files: [...files], accepts: read => !readsOwnField(read) && isScopedPropertyRead(read, scope) }];
 }
 
@@ -570,14 +572,24 @@ function getterTargetAt(
 	if (!className) {
 		return undefined;
 	}
-	const roots = hierarchy.resolveClass(className);
-	const searched = [...roots, ...walkHierarchy(roots, fqn => hierarchy.parentsOf(fqn))];
-	if (searched.some(fqn => hierarchy.memberType?.(fqn, propertyName) !== undefined)) {
+	const known = hierarchy.resolveClass(className);
+	const fileType = known.length > 1 && !chain ? hierarchy.resolveTypeIn?.(sourcePath, className) : undefined;
+	const roots = fileType && known.includes(fileType) ? [fileType] : known;
+	if (hasFieldInHierarchy(hierarchy, roots, propertyName)) {
 		return undefined;
 	}
+	const searched = [...roots, ...walkHierarchy(roots, fqn => hierarchy.parentsOf(fqn))];
 	const getter = getterNamesForProperty(propertyName)
 		.find(name => searched.some(fqn => hierarchy.methodDeclarations(fqn, name).length > 0));
-	return getter ? { kind: 'method', name: getter, className } : undefined;
+	if (!getter) {
+		return undefined;
+	}
+	return { kind: 'method', name: getter, className, ...(roots.length === 1 ? { classFqn: roots[0] } : {}) };
+}
+
+function hasFieldInHierarchy(hierarchy: UsageHierarchy, roots: string[], fieldName: string): boolean {
+	return [...roots, ...walkHierarchy(roots, fqn => hierarchy.parentsOf(fqn))]
+		.some(fqn => hierarchy.memberType?.(fqn, fieldName) !== undefined);
 }
 
 function receiverClassName(documentText: string, sourcePath: string, line: number, receiver: string): string {

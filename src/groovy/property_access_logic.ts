@@ -2,7 +2,7 @@ import { analyzeDocument, CallSiteRecord, receiverChain, resolveChainRootType } 
 import { escapeRegExp } from './text_scan_logic';
 
 const GETTER_RE = /^(get|is)([A-Z]\w*)$/;
-const NOT_A_READ_RE = /^\s*(?:[({]|=(?!=))/;
+const NOT_A_READ_RE = /^\s*(?:[({]|=(?![=~]))/;
 
 export interface PropertyScan {
 	scope: 'properties';

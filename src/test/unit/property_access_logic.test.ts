@@ -31,6 +31,10 @@ suite('property_access_logic', () => {
 		assert.strictEqual(at('invoice.code { it }'), false);
 		assert.strictEqual(at('invoice.code = "A"'), false);
 		assert.strictEqual(at('def pointer = invoice.code.&trim'), true);
+		assert.strictEqual(at('if (invoice.code =~ /A/) {'), true);
+		assert.strictEqual(at('if (invoice.code ==~ /A/) {'), true);
+		assert.strictEqual(at('invoice.code += 1'), true);
+		assert.strictEqual(at('invoice.code++'), true);
 	});
 
 	test('checks that a getter is declared without parameters', () => {
@@ -82,4 +86,23 @@ suite('property_access_logic', () => {
 		});
 		assert.deepStrictEqual(locations, [{ sourcePath: '/w/A.groovy', line: 2, column: 16, length: 11 }]);
 	});
+
+	test('reads inside GString interpolation count, while comments, plain strings and multi-line strings do not', () => {
+		const text = [
+			'class Mailer {',
+			'    def send(Invoice invoice) {',
+			'        println "Code ${invoice.receiptCode}"',
+			'        // invoice.receiptCode',
+			'        println "invoice.receiptCode"',
+			'        String body = """',
+			'            invoice.receiptCode',
+			'        """',
+			'        println Invoice.receiptCode',
+			'    }',
+			'}'
+		].join('\n');
+		const reads = findPropertyReads(text, '/w/Mailer.groovy', 'receiptCode').map(read => [read.line, read.receiverName, read.receiverType]);
+		assert.deepStrictEqual(reads, [[2, 'invoice', 'Invoice'], [8, 'Invoice', undefined]]);
+	});
 });
+
