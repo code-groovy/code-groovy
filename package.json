@@ -20,10 +20,16 @@
     ],
     "icon": "groovy.png",
     "activationEvents": [
+        "workspaceContains:**/*.groovy",
+        "workspaceContains:**/grails-app/**",
         "onCommand:cgroovy.organizeImports",
         "onCommand:cgroovy.organizeDependences",
+        "onCommand:cgroovy.debugApp",
         "onLanguage:groovy",
-        "onLanguage:gsp"
+        "onLanguage:gsp",
+        "onDebugResolve:groovy",
+        "onDebugDynamicConfigurations:groovy",
+        "onDebug"
     ],
     "repository": {
         "type": "git",
@@ -35,7 +41,9 @@
     "homepage": "https://github.com/code-groovy/code-groovy#readme",
     "main": "./out/extension",
     "extensionDependencies": [
-        "vscode.html-language-features"
+        "vscode.html-language-features",
+        "redhat.java",
+        "vscjava.vscode-java-debug"
     ],
     "contributes": {
         "htmlLanguageParticipants": [
@@ -90,6 +98,44 @@
                     ],
                     "markdownDescription": "Gradle submodules to index when settings.gradle is found."
                 },
+                "codeGroovy.debug.attachTimeoutMs": {
+                    "type": "number",
+                    "default": 600000,
+                    "markdownDescription": "Time to wait for Gradle (compile + bootRun) and the app JVM to open JDWP (default port 5005). First Grails launches often need several minutes."
+                },
+                "codeGroovy.debug.useBootRunDebugJvm": {
+                    "type": "boolean",
+                    "default": false,
+                    "markdownDescription": "Pass `--debug-jvm` to `bootRun` (Spring Boot Gradle plugin). Leave **off** for most Grails projects — Gradle often exits with code 1; JDWP is injected via the init script instead."
+                },
+                "codeGroovy.debug.openBrowserOnReady": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "When Grails/Spring Boot finishes starting (log line + HTTP responds), open the app URL in the default browser."
+                },
+                "codeGroovy.debug.serverUrl": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "Optional app URL for readiness checks (e.g. `http://localhost:8080`). Leave empty to parse from Gradle output (`Grails application running at …`)."
+                },
+                "codeGroovy.debug.jdwpSuspend": {
+                    "type": "string",
+                    "enum": [
+                        "n",
+                        "y"
+                    ],
+                    "default": "n",
+                    "markdownDescription": "JDWP **suspend** flag on the app JVM. **n** (default): app boots while the debugger attaches — breakpoints work without an extra Continue at startup. **y**: JVM waits frozen until you Continue once (older behavior)."
+                },
+                "codeGroovy.debug.gradleConsole": {
+                    "type": "string",
+                    "enum": [
+                        "rich",
+                        "plain"
+                    ],
+                    "default": "rich",
+                    "markdownDescription": "Gradle `--console` mode for **Groovy Debug** terminal output. Use **rich** for ANSI colors (Grails/Spring log levels). Use **plain** if your CI-style logs break with color codes."
+                },
                 "codeGroovy.importOrder.warnings": {
                     "type": "boolean",
                     "default": true,
@@ -113,6 +159,10 @@
             {
                 "command": "cgroovy.rebuildIndex",
                 "title": "Rebuild Code Groovy Index"
+            },
+            {
+                "command": "cgroovy.debugApp",
+                "title": "Debug Groovy / Grails Application"
             }
         ],
         "keybindings": [
@@ -189,6 +239,137 @@
                 "path": "./syntaxes/gsp.grails-mid-tag.injection.tmLanguage.json",
                 "injectTo": [
                     "text.html.gsp"
+                ]
+            }
+        ],
+        "breakpoints": [
+            {
+                "language": "groovy"
+            }
+        ],
+        "debuggers": [
+            {
+                "type": "groovy",
+                "label": "Groovy / Grails",
+                "languages": [
+                    "groovy"
+                ],
+                "configurationAttributes": {
+                    "launch": {
+                        "properties": {
+                            "port": {
+                                "type": [
+                                    "number",
+                                    "string"
+                                ],
+                                "default": 5005,
+                                "description": "JDWP port of the app JVM (default 5005)."
+                            },
+                            "task": {
+                                "type": "string",
+                                "description": "Gradle task to run (default bootRun for Grails, run otherwise). Can be qualified, e.g. :web:bootRun."
+                            },
+                            "module": {
+                                "type": "string",
+                                "description": "Gradle submodule to run (default web in a Grails multi-module repo)."
+                            },
+                            "gradleArgs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description": "Extra arguments passed to Gradle after the task name."
+                            },
+							"sourcePaths": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Extra source directories for Groovy/Java mapping. Auto-detected when omitted."
+							},
+							"projectName": {
+								"type": "string",
+								"description": "Java project name used by Debugger for Java to evaluate expressions (defaults to the Gradle module, e.g. web)."
+							},
+                            "serverUrl": {
+                                "type": "string",
+                                "description": "App URL to probe and open when startup completes (overrides codeGroovy.debug.serverUrl)."
+                            },
+                            "openBrowserOnReady": {
+                                "type": "boolean",
+                                "description": "Open the browser when the app responds on serverUrl (default from codeGroovy.debug.openBrowserOnReady)."
+                            }
+                        }
+                    },
+                    "attach": {
+                        "required": [
+                            "port"
+                        ],
+                        "properties": {
+                            "hostName": {
+                                "type": "string",
+                                "default": "localhost",
+                                "description": "Host name or IP of the debuggee JVM."
+                            },
+                            "port": {
+                                "type": [
+                                    "number",
+                                    "string"
+                                ],
+                                "default": 5005,
+                                "description": "JDWP port of the debuggee JVM."
+                            },
+							"sourcePaths": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Extra source directories for Groovy/Java mapping. Auto-detected when omitted."
+							},
+							"projectName": {
+								"type": "string",
+								"description": "Java project name used by Debugger for Java to evaluate expressions (defaults to the Gradle module, e.g. web)."
+							}
+                        }
+                    }
+                },
+                "initialConfigurations": [
+                    {
+                        "type": "groovy",
+                        "request": "launch",
+                        "name": "Groovy: Launch Grails",
+                        "port": 5005
+                    },
+                    {
+                        "type": "groovy",
+                        "request": "attach",
+                        "name": "Groovy: Attach",
+                        "hostName": "localhost",
+                        "port": 5005
+                    }
+                ],
+                "configurationSnippets": [
+                    {
+                        "label": "Groovy: Launch Grails / Micronaut",
+                        "description": "Start the Gradle app with JDWP and attach the Java debugger",
+                        "body": {
+                            "type": "groovy",
+                            "request": "launch",
+                            "name": "Groovy: Launch Grails",
+                            "port": 5005
+                        }
+                    },
+                    {
+                        "label": "Groovy: Attach to JVM",
+                        "description": "Attach to a JVM already started with JDWP (port 5005)",
+                        "body": {
+                            "type": "groovy",
+                            "request": "attach",
+                            "name": "Groovy: Attach",
+                            "hostName": "localhost",
+                            "port": 5005
+                        }
+                    }
                 ]
             }
         ]

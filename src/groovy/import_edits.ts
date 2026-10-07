@@ -1,5 +1,6 @@
 import { packageNameFromFqn } from './class_index_store';
 import { listExistingImports, parsePackageName } from './class_parser';
+import { compareImportLines } from './import_order_logic';
 
 export interface ImportInsertion {
 	/** Offset in the document text where the import line should be inserted. */
@@ -68,7 +69,7 @@ export function findSortedImportInsertOffset(documentText: string, importLine: s
 			afterPackage = lineEnd;
 		} else if (/^import\b/.test(trimmed)) {
 			afterLastImport = lineEnd;
-			if (insertBeforeOffset === undefined && trimmed.localeCompare(target) > 0) {
+			if (insertBeforeOffset === undefined && compareImportLines(trimmed, target) > 0) {
 				insertBeforeOffset = lineStart;
 			}
 		} else if (trimmed && (afterPackage || afterLastImport !== undefined)) {

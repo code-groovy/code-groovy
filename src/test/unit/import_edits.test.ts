@@ -32,8 +32,8 @@ suite('import_edits', () => {
 	test('inserts the new import in sorted position without reordering others', () => {
 		const source = [
 			'package com.demo',
-			'import com.example.app.userpermission.AdminModulePermission',
-			'import com.example.app.util.Utils',
+			'import com.example.app.security.AccessRule',
+			'import com.example.app.util.TextKit',
 			'import grails.plugin.springsecurity.SpringSecurityUtils',
 			'import java.util.concurrent.TimeUnit',
 			'import grails.validation.Validateable',
@@ -44,18 +44,41 @@ suite('import_edits', () => {
 
 		const updated = applyImportInsertion(
 			source,
-			planImportInsertion(source, 'com.example.app.domain.CustomerAccount')
+			planImportInsertion(source, 'com.example.app.domain.Widget')
 		);
 
 		assert.ok(
 			updated.includes(
-				'import com.example.app.domain.CustomerAccount\nimport com.example.app.userpermission.AdminModulePermission\n'
+				'import com.example.app.domain.Widget\nimport com.example.app.security.AccessRule\n'
 			)
 		);
 		// Existing out-of-order Validateable stays where it was.
 		assert.ok(
 			updated.includes(
 				'import java.util.concurrent.TimeUnit\nimport grails.validation.Validateable\n'
+			)
+		);
+	});
+
+	test('inserts converter imports after core util in ASCII order', () => {
+		const source = [
+			'package com.example.service',
+			'import com.example.lib.AlphaHelper',
+			'import com.example.lib.CoreUtils',
+			'import com.example.store.repository.OrderRepository',
+			'',
+			'class Example {}',
+			''
+		].join('\n');
+
+		const updated = applyImportInsertion(
+			source,
+			planImportInsertion(source, 'com.example.lib.converter.StringConverter')
+		);
+
+		assert.ok(
+			updated.includes(
+				'import com.example.lib.CoreUtils\nimport com.example.lib.converter.StringConverter\nimport com.example.store.repository.OrderRepository\n'
 			)
 		);
 	});

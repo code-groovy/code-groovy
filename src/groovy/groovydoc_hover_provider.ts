@@ -21,12 +21,13 @@ export class GroovydocHoverProvider implements vscode.HoverProvider {
 		}
 
 		const word = document.getText(wordRange);
-		const offset = document.offsetAt(position);
+		if (vscode.debug.activeDebugSession?.type === 'groovy') {
+			return undefined;
+		}
 		const text = document.getText();
+		const offset = document.offsetAt(position);
 
-		const local =
-			findGroovydocForName(text, word) ??
-			findGroovydocNearOffset(text, offset);
+		const local = findGroovydocForName(text, word) ?? findGroovydocNearOffset(text, offset);
 
 		if (local) {
 			return toHover(local, wordRange);
