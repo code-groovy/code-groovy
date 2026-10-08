@@ -17,28 +17,7 @@ export function wordScanner(token?: vscode.CancellationToken): (word: string, sc
 }
 
 export function propertyScanner(token?: vscode.CancellationToken): (scan: PropertyScan) => Promise<UsageLocation[]> {
-	return async scan => {
-		const results: UsageLocation[] = [];
-		let index = 0;
-		const worker = async (): Promise<void> => {
-			while (index < scan.files.length) {
-				if (token?.isCancellationRequested) {
-					return;
-				}
-				const current = scan.files[index++];
-				let text: string;
-				try {
-					text = await fs.promises.readFile(current, 'utf8');
-				} catch {
-					continue;
-				}
-				results.push(...propertyReadLocations(text, current, scan));
-			}
-		};
-		const workerCount = Math.min(CONCURRENCY, scan.files.length) || 1;
-		await Promise.all(Array.from({ length: workerCount }, () => worker()));
-		return results;
-	};
+	return scan => scanFiles(scan.files, token, (text, sourcePath) => propertyReadLocations(text, sourcePath, scan));
 }
 
 export async function findWordOccurrences(
@@ -52,28 +31,40 @@ export async function findWordOccurrences(
 	}
 
 	const filePaths = files ?? (await discoverSourceFiles()).filePaths;
-	const results: UsageLocation[] = [];
+	return scanFiles(filePaths, token, (text, sourcePath) =>
+		findWordMatches(text, word, receiverFieldName).map(match => ({
+			sourcePath,
+			line: match.line,
+			column: match.column,
+			length: word.length
+		}))
+	);
+}
 
+async function scanFiles(
+	files: string[],
+	token: vscode.CancellationToken | undefined,
+	locate: (text: string, sourcePath: string) => UsageLocation[]
+): Promise<UsageLocation[]> {
+	const results: UsageLocation[] = [];
 	let index = 0;
 	const worker = async (): Promise<void> => {
-		while (index < filePaths.length) {
+		while (index < files.length) {
 			if (token?.isCancellationRequested) {
 				return;
 			}
-			const current = filePaths[index++];
+			const current = files[index++];
 			let text: string;
 			try {
 				text = await fs.promises.readFile(current, 'utf8');
 			} catch {
 				continue;
 			}
-			for (const match of findWordMatches(text, word, receiverFieldName)) {
-				results.push({ sourcePath: current, line: match.line, column: match.column, length: word.length });
-			}
+			results.push(...locate(text, current));
 		}
 	};
 
-	const workerCount = Math.min(CONCURRENCY, filePaths.length) || 1;
+	const workerCount = Math.min(CONCURRENCY, files.length) || 1;
 	await Promise.all(Array.from({ length: workerCount }, () => worker()));
 
 	return results;
