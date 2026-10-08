@@ -16,6 +16,7 @@ Groovy, Grails and GSP language support for Visual Studio Code and Cursor.
 - **Go to Definition** (`Ctrl`/`Cmd` + click, or `F12`) for Groovy classes, methods, services and inherited methods, resolving both workspace sources and the Gradle/Maven JAR classpath — including source JARs when they are available locally.
 - **TagLib navigation across files**: jump from `catalogTagLib.method` or `namespace.method` in Groovy, and from `<ns:tag>` or `ns.method` in GSP, straight to the TagLib closure that defines it. Works for Groovy inside `${...}` and `<%...%>` blocks too.
 - **Open views and assets from markup**: `Ctrl`/`Cmd` + click on `template=`, `src=` or `url=` in `g:render` and `asset:*` tags. The full attribute value is underlined, and `.scss` sources are preferred over compiled `.css`.
+- **Controller, action and view links**: `Ctrl`/`Cmd` + click on the `controller`, `action` or `view` of `createLink`, `redirect`, `render`, `<g:link>`, `<g:form>` and similar calls and tags opens the controller class, the action method (including actions inherited from a base controller) or the GSP view. Without a `controller`, the current controller is used — the controller file itself, or the `views/<controller>/` folder of a GSP.
 - **Document symbols and outline** covering TagLib closure assignments (`def myTag = { ... }`) and methods with generic return types such as `Map` or `List<Map>`.
 
 ### Imports
