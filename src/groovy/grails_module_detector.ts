@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { isExcludedDirectory } from './source_exclusion';
+import { isExcludedDirectory, isLinkedWorktreeRoot } from './source_exclusion';
 
 export interface GrailsModule {
 	name: string;
@@ -139,6 +139,9 @@ export async function collectSourceFilesFromDirectory(dirPath: string): Promise<
 			try {
 				entries = await fs.promises.readdir(current, { withFileTypes: true });
 			} catch {
+				return;
+			}
+			if (current !== dirPath && entries.some(entry => entry.name === '.git' && entry.isFile()) && isLinkedWorktreeRoot(current)) {
 				return;
 			}
 			for (const entry of entries) {
