@@ -4,8 +4,26 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+- Go to Definition (Ctrl+Click / Cmd+Click) on the `controller`, `action` or `view` of Grails links and renders — `createLink`, `link`, `redirect`, `chain`, `forward`, `render(view:)` and `respond(view:)` in Groovy and inside GSP `${...}`, and `<g:link>`, `<g:form>`, `<g:uploadForm>`, `<g:paginate>` and other link tags in GSP — opens the controller class, the action method (including actions inherited from a base controller) or the view (`/folder/view` from `views/`, a relative name from the current controller's folder); without a `controller` it uses the current controller (the controller file, or the `views/<controller>/` folder of a GSP), prefers a controller in the same module when several share a name, and does not navigate when the value is dynamic or the target does not exist; inside an HTML attribute such as `<a href="${createLink(...)}">` or `<form action="${createLink(...)}">`, the `controller` and `action` values become links to their targets, replacing the HTML link that tried to open the whole value as a file
 - Go to Definition (Ctrl+Click / Cmd+Click) on a property read such as `invoice.receiptCode` or `invoice?.overdue` opens the `getReceiptCode()` or `isOverdue()` getter when the class has no field with that name and the receiver type is known (declared type, property chain, `this` or class name)
 - Go to Definition on a getter declaration and Find All References also list its property reads, scoped to the declaring class and its subclasses; reads are searched in the files that mention the class, so a read reached only through a chain of other classes is not listed
+
+## [0.3.0] - 2026-10-07
+- Add Groovy/Grails debug: launch Gradle with JDWP on the app JVM or attach to JDWP (port 5005) via Debugger for Java
+- Show Groovy debug hover/inline values and inject Grails implicits (`params`, `session`, `request`, `flash`) into the Variables view
+- Compare import order in ASCII (same as Organize Imports), so a util class before a `converter` subpackage is not flagged
+- Resolve debug hover/Locals from the JDI variable tree (`this`/`delegate`) instead of Java `evaluate`, which fails in Groovy frames
+- Wait for Language Support for Java before starting the Groovy debug adapter, so Play no longer fails with "Couldn't find a debug adapter descriptor"
+- Show debug values on hover instead of method Groovydoc; pass Java `projectName` and evaluate Grails web request lookups
+- Show Gradle compile / build / app-running status in the debug progress notification and status bar
+- Do not list duplicate Groovy launch configs when `launch.json` already has them
+- Start workspace indexing when the window opens, without waiting for a `.groovy` file
+- Enable JDWP on the app `JavaExec` via a Gradle init script instead of CLI `--debug-jvm`, which debugs Gradle itself
+- Declare Language Support for Java and Debugger for Java as extension dependencies in `package.json`
+- Open the browser when the app HTTP endpoint responds after bootRun
+
+## [0.2.6] - 2026-10-07
+- Skip the `bin/main`, `bin/test` and `bin/default` output folders that the Java language server (Language Support for Java) creates next to Gradle projects, so copies of the sources there no longer show up as duplicate Go to Definition (Ctrl+Click / Cmd+Click) targets or usages; other `bin` folders are still indexed
 
 ## [0.2.5] - 2026-10-02
 - Jump from a method or class declaration to where it's used (Go to Definition — Ctrl+Click, Cmd+Click on macOS), mirroring IntelliJ's "Go to Declaration or Usages", including overloaded methods and constructors
@@ -56,7 +74,7 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Match square brackets `[` `]` in GSP bracket matching
 - Include TagLib-style closure assignments (`def myTag = { ... }`) in document symbols / outline
 - Auto-import Groovy/Java types from workspace source and Gradle/Maven JAR classpaths via IntelliSense and a Quick Fix
-- Rank auto-import suggestions so workspace types like `Customer` stay above longer JAR names such as `CustomerAccountDTO`
+- Rank auto-import suggestions so workspace types like `Pet` stay above longer JAR names such as `PetProfileDTO`
 - Insert auto-imported lines in sorted position without reshuffling existing imports; warn (yellow) on out-of-order import lines
 - Add Ctrl+click Go to Definition for Groovy types, methods, services, and inherited methods (workspace + JAR sources when available)
 - Suggest workspace/Grails methods on member access (`receiver.`) using the same artifact hierarchy as Go to Definition

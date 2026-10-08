@@ -9,6 +9,8 @@ import { registerJarContentProvider } from './groovy/jar_content_provider';
 import { GspDefinitionProvider } from './gsp/gsp_definition_provider';
 import { GspResourceLinkProvider } from './gsp/gsp_resource_link_provider';
 import { TagLibIndex } from './gsp/taglib_index';
+import { registerGroovyDebug } from './debug/groovy_debug';
+import { workspaceContainsGroovy } from './groovy/workspace_groovy';
 
 let classIndex: ClassIndex | undefined;
 
@@ -28,6 +30,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     void ensureGspEmmetCoexistence();
     registerJarContentProvider(context);
+    registerGroovyDebug(context);
 
     const tagLibIndex = new TagLibIndex();
     context.subscriptions.push(tagLibIndex);
@@ -48,10 +51,14 @@ export function activate(context: vscode.ExtensionContext) {
       // Full-range underline + click for template=/src=/url= (not just one path segment).
       vscode.languages.registerDocumentLinkProvider(
         { language: 'gsp' },
-        new GspResourceLinkProvider()
+        new GspResourceLinkProvider(classIndex)
       )
     );
-    void classIndex.start(context);
+    void workspaceContainsGroovy().then(hasGroovy => {
+        if (hasGroovy) {
+            void classIndex?.start(context);
+        }
+    });
 }
 
 export function deactivate() {

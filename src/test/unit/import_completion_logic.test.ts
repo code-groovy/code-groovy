@@ -70,19 +70,19 @@ suite('import completion and code action (issue #3)', () => {
 		assert.strictEqual(actions[0].insertion.text, 'import grails.validation.Validateable\n');
 	});
 
-	test('keeps workspace Customer ahead of later JAR Customer* types', () => {
+	test('keeps workspace Pet ahead of later JAR Pet* types', () => {
 		const store = new ClassIndexStore();
-		const jarTypes = Array.from({ length: 60 }, (_, i) => `com.plugin.CustomerExtra${i}`);
-		jarTypes.push('com.plugin.CustomerAccountDTO');
+		const jarTypes = Array.from({ length: 60 }, (_, i) => `com.plugin.PetExtra${i}`);
+		jarTypes.push('com.plugin.PetProfileDTO');
 		store.add(indexJarFqns(jarTypes));
-		store.add(indexSourceText('package com.demo\nclass Customer {}\n', 'Customer.groovy'));
-		store.add(indexSourceText('package com.demo\nclass CustomerAccount {}\n', 'CustomerAccount.groovy'));
+		store.add(indexSourceText('package com.demo\nclass Pet {}\n', 'Pet.groovy'));
+		store.add(indexSourceText('package com.demo\nclass PetProfile {}\n', 'PetProfile.groovy'));
 
-		const completions = resolveTypeCompletions('Customer', issueSource, store);
-		assert.ok(completions.some(item => item.fqn === 'com.demo.Customer'));
-		assert.ok(completions.some(item => item.fqn === 'com.demo.CustomerAccount'));
-		assert.strictEqual(completions[0].fqn, 'com.demo.Customer');
-		assert.strictEqual(completions[1].fqn, 'com.demo.CustomerAccount');
+		const completions = resolveTypeCompletions('Pet', issueSource, store);
+		assert.ok(completions.some(item => item.fqn === 'com.demo.Pet'));
+		assert.ok(completions.some(item => item.fqn === 'com.demo.PetProfile'));
+		assert.strictEqual(completions[0].fqn, 'com.demo.Pet');
+		assert.strictEqual(completions[1].fqn, 'com.demo.PetProfile');
 	});
 
 	test('does not offer an import that already exists', () => {

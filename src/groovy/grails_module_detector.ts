@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { isExcludedDirectory } from './source_exclusion';
 
 export interface GrailsModule {
 	name: string;
@@ -9,8 +10,6 @@ export interface GrailsModule {
 }
 
 const DEFAULT_MODULES = ['domain', 'web', 'api'];
-
-const SKIP_DIRS = new Set(['node_modules', 'build', '.git', 'target', 'out']);
 
 export function detectGrailsModules(
 	workspaceFolders: readonly { uri: { fsPath: string } }[],
@@ -145,7 +144,7 @@ export async function collectSourceFilesFromDirectory(dirPath: string): Promise<
 			for (const entry of entries) {
 				const fullPath = path.join(current, entry.name);
 				if (entry.isDirectory()) {
-					if (!SKIP_DIRS.has(entry.name)) {
+					if (!isExcludedDirectory(entry.name, path.basename(current))) {
 						next.push(fullPath);
 					}
 				} else if (entry.name.endsWith('.groovy') || entry.name.endsWith('.java')) {

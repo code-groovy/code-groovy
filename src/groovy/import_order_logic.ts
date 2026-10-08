@@ -23,7 +23,7 @@ export function findOutOfOrderImports(documentText: string): OutOfOrderImport[] 
 		}
 		if (/^import\b/.test(trimmed)) {
 			seenPackageOrImport = true;
-			if (previous && trimmed.localeCompare(previous.text) < 0) {
+			if (previous && compareImportLines(trimmed, previous.text) < 0) {
 				result.push({
 					line: i,
 					text: trimmed,
@@ -39,4 +39,12 @@ export function findOutOfOrderImports(documentText: string): OutOfOrderImport[] 
 	}
 
 	return result;
+}
+
+/** ASCII order, matching Organize Imports (`Array.sort`) and IntelliJ (e.g. `CoreUtils` before `converter`). */
+export function compareImportLines(a: string, b: string): number {
+	if (a === b) {
+		return 0;
+	}
+	return a < b ? -1 : 1;
 }

@@ -7,6 +7,13 @@ import {
 	resolveGspResourcePath
 } from './gsp_resource_path_logic';
 import { ProjectTagLibTag, tagMatchesReceiver } from './taglib_parser';
+import {
+	ControllerActionContext,
+	findGroovyLinkArgAt,
+	findGspTagLinkArgAt,
+	LinkArgHit,
+	resolveControllerActionDefinitions
+} from './controller_action_navigation_logic';
 
 export interface GspDefinitionContext {
 	documentText: string;
@@ -20,6 +27,13 @@ export interface GspDefinitionContext {
 	artifactIndex: GrailsArtifactIndex;
 }
 
+export interface EmbeddedLinkArg {
+	start: number;
+	end: number;
+	hit: LinkArgHit;
+}
+
+const EMBEDDED_LINK_KEY_RE = /\b(?:controller|action|view)\s*:\s*(["'])/g;
 const TAG_AT_RE = /<\/?([A-Za-z_]\w*):([A-Za-z_]\w*)/g;
 const TAGLIB_CALL_RE = /\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b/g;
 /** Built-in Grails/Asset namespaces that are TagLib calls, not bean.method. */
@@ -121,6 +135,22 @@ function findRegionContaining(
 	return undefined;
 }
 
+export function listEmbeddedLinkArgs(documentText: string): EmbeddedLinkArg[] {
+	const args: EmbeddedLinkArg[] = [];
+	EMBEDDED_LINK_KEY_RE.lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = EMBEDDED_LINK_KEY_RE.exec(documentText)) !== null) {
+		const valueOffset = match.index + match[0].length;
+		const embedded = findEmbeddedGroovyAtOffset(documentText, valueOffset);
+		const hit = embedded ? findGroovyLinkArgAt(embedded.text, embedded.localOffset) : undefined;
+		if (embedded && hit) {
+			const contentStart = valueOffset - embedded.localOffset;
+			args.push({ start: contentStart + hit.arg.valueStart, end: contentStart + hit.arg.valueEnd, hit });
+		}
+	}
+	return args;
+}
+
 export function resolveGspDefinitions(context: GspDefinitionContext): DefinitionTarget[] {
 	const lines = context.documentText.split('\n');
 	const lineText = lines[context.line] ?? '';
@@ -140,6 +170,12 @@ export function resolveGspDefinitions(context: GspDefinitionContext): Definition
 		}
 	}
 
+	const offset = offsetAt(lines, context.line, context.character);
+	const tagLink = findGspTagLinkArgAt(context.documentText, offset);
+	if (tagLink) {
+		return resolveControllerActionDefinitions(tagLink, controllerActionContext(context));
+	}
+
 	const tag = findTagAtPosition(lineText, context.character);
 	if (tag) {
 		// XML-style <g:createLink> / <demoUI:x>. Core g: tags with no project TagLib → no target
@@ -147,10 +183,14 @@ export function resolveGspDefinitions(context: GspDefinitionContext): Definition
 		return resolveProjectTag(context.tags, tag.namespace, tag.method);
 	}
 
-	const offset = offsetAt(lines, context.line, context.character);
 	const embedded = findEmbeddedGroovyAtOffset(context.documentText, offset);
 	if (!embedded) {
 		return [];
+	}
+
+	const embeddedLink = findGroovyLinkArgAt(embedded.text, embedded.localOffset);
+	if (embeddedLink) {
+		return resolveControllerActionDefinitions(embeddedLink, controllerActionContext(context));
 	}
 
 	const tagLibCall = findTagLibCallAtPosition(embedded.text, embedded.localOffset);
@@ -181,6 +221,14 @@ export function resolveGspDefinitions(context: GspDefinitionContext): Definition
 		classStore: context.classStore,
 		artifactIndex: context.artifactIndex
 	});
+}
+
+function controllerActionContext(context: GspDefinitionContext): ControllerActionContext {
+	return {
+		sourcePath: context.sourcePath,
+		workspaceRoot: context.workspaceRoot,
+		findEntries: className => context.artifactIndex.findAllByClassName(className)
+	};
 }
 
 function offsetAt(lines: string[], line: number, character: number): number {
