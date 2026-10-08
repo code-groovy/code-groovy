@@ -5,6 +5,7 @@ import { resolveDefinitions } from './definition_resolver';
 import { resolveGradleProjectRoot } from './classpath_resolver';
 import { resolveGspDefinitions } from '../gsp/gsp_definition_logic';
 import { resolveGroovyTagLibDefinitions } from '../gsp/groovy_taglib_navigation_logic';
+import { findGroovyLinkArgAt, mayContainLinkArg, resolveControllerActionDefinitions } from '../gsp/controller_action_navigation_logic';
 import { ProjectTagLibTag } from '../gsp/taglib_parser';
 import { toVscodeLocation, wordScanner } from './usage_locations';
 import { CallSiteIndexStore } from './call_site_index_store';
@@ -49,6 +50,17 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
 		if (isInsideComment(document.getText(), document.offsetAt(position))
 			&& !isInsideDocLink(document.lineAt(position.line).text, position.character)) {
 			return undefined;
+		}
+
+		if (mayContainLinkArg(document.lineAt(position.line).text)) {
+			const linkArg = findGroovyLinkArgAt(document.getText(), document.offsetAt(position));
+			if (linkArg) {
+				return toLocations(resolveControllerActionDefinitions(linkArg, {
+					sourcePath: document.uri.fsPath,
+					workspaceRoot,
+					findEntries: className => this.artifactIndex.findAllByClassName(className)
+				}));
+			}
 		}
 
 		const wordRange = document.getWordRangeAtPosition(position, /[A-Za-z_]\w*/);
