@@ -3,6 +3,11 @@ import * as fs from 'fs';
 import Mocha from 'mocha';
 
 export function run(): Promise<void> {
+	const startedMarker = process.env.CODE_GROOVY_SUITE_STARTED;
+	if (startedMarker) {
+		fs.writeFileSync(startedMarker, '');
+	}
+
 	const mocha = new Mocha({
 		ui: 'tdd',
 		color: true
