@@ -11,7 +11,7 @@ import {
 	findGspTagLinkArgAt,
 	resolveControllerActionDefinitions
 } from '../../gsp/controller_action_navigation_logic';
-import { listEmbeddedLinkArgs, resolveGspDefinitions } from '../../gsp/gsp_definition_logic';
+import { controllerActionLinkSpans, listEmbeddedLinkArgs, resolveGspDefinitions } from '../../gsp/gsp_definition_logic';
 
 const BILL_CONTROLLER = `package com.example
 
@@ -346,6 +346,33 @@ suite('controller_action_navigation_logic', () => {
 			const args = listEmbeddedLinkArgs(text);
 			assert.deepStrictEqual(args.map(arg => text.slice(arg.start, arg.end)), ['index', 'bill', 'list']);
 			assert.deepStrictEqual(args.map(arg => arg.hit.arg.name), ['action', 'controller', 'action']);
+			assert.deepStrictEqual(controllerActionLinkSpans(text, args).map(span => text.slice(span.start, span.end)), ['index', 'bill', 'list']);
+		});
+
+		test('replaces the href link that a Groovy double quote cuts short', () => {
+			const text = '<a class="mdl-button primary-button" href="${ createLink(controller: "transactionReceipt", action: "pdf", params: [id: transactionReceipt.publicId]) }">Baixar pdf</a>';
+			const args = listEmbeddedLinkArgs(text);
+			assert.deepStrictEqual(args.map(arg => text.slice(arg.start, arg.end)), ['transactionReceipt', 'pdf']);
+			const spans = controllerActionLinkSpans(text, args);
+			assert.strictEqual(text.slice(spans[0].start, spans[0].end), '"transactionReceipt');
+			assert.ok(!text.slice(spans[0].start, spans[0].end).includes('createLink'));
+			assert.strictEqual(spans[0].hit.arg.value, 'transactionReceipt');
+			assert.strictEqual(text.slice(spans[1].start, spans[1].end), 'pdf');
+
+			const navigable = '<a href="${ createLink(controller: "bill", action: "list", params: [id: bill.id]) }">pdf</a>';
+			const targets = resolveInGsp(navigable, at(navigable, '"list"', 1), 'web/grails-app/views/shared/detail.gsp');
+			assert.deepStrictEqual(targets.map(target => [target.uri, target.line]), [
+				[file('web/grails-app/controllers/com/example/BillController.groovy'), 8]
+			]);
+
+			const sameQuote = '<a href=\'${createLink(controller: \'bill\', action: \'list\')}\'>x</a>';
+			const sameQuoteSpans = controllerActionLinkSpans(sameQuote, listEmbeddedLinkArgs(sameQuote));
+			assert.strictEqual(sameQuote.slice(sameQuoteSpans[0].start, sameQuoteSpans[0].end), '\'bill');
+			assert.strictEqual(sameQuote.slice(sameQuoteSpans[1].start, sameQuoteSpans[1].end), 'list');
+
+			const mixed = '<a href="${createLink(controller: \'bill\', action: "list")}">x</a>';
+			const mixedSpans = controllerActionLinkSpans(mixed, listEmbeddedLinkArgs(mixed));
+			assert.deepStrictEqual(mixedSpans.map(span => mixed.slice(span.start, span.end)), ['bill', 'list']);
 		});
 
 		test('keeps resolving render templates', () => {

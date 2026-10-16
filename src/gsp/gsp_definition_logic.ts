@@ -151,6 +151,46 @@ export function listEmbeddedLinkArgs(documentText: string): EmbeddedLinkArg[] {
 	return args;
 }
 
+const HTML_ATTR_OPEN_RE = /[\w:-]+\s*=\s*$/;
+
+/**
+ * `href="${createLink(controller: "bill")}"` ends the HTML attribute at the Groovy quote,
+ * so the built-in link is the file `${createLink(controller: `. Include that quote in the
+ * value link: the ranges touch, the file link is dropped, and `createLink` stays plain text.
+ */
+export function controllerActionLinkSpans(text: string, args: EmbeddedLinkArg[]): EmbeddedLinkArg[] {
+	const covered = new Set<number>();
+	return args.map((arg, index) => {
+		const quoteIndex = arg.start - 1;
+		const htmlValueStart = truncatedHtmlAttributeValueStart(text, quoteIndex);
+		if (htmlValueStart === undefined || covered.has(htmlValueStart)) {
+			return arg;
+		}
+		const earlierArgInside = args.slice(0, index).some(other => other.start >= htmlValueStart && other.start < arg.start);
+		if (earlierArgInside) {
+			return arg;
+		}
+		covered.add(htmlValueStart);
+		return { ...arg, start: quoteIndex };
+	});
+}
+
+function truncatedHtmlAttributeValueStart(text: string, closingQuoteIndex: number): number | undefined {
+	const quote = text[closingQuoteIndex];
+	if ((quote !== '"' && quote !== '\'') || closingQuoteIndex < 0) {
+		return undefined;
+	}
+	const open = text.lastIndexOf(quote, closingQuoteIndex - 1);
+	if (open < 0 || !HTML_ATTR_OPEN_RE.test(text.slice(Math.max(0, open - 80), open))) {
+		return undefined;
+	}
+	const value = text.slice(open + 1, closingQuoteIndex);
+	if (!value.includes('${') || value.includes('}')) {
+		return undefined;
+	}
+	return open + 1;
+}
+
 export function resolveGspDefinitions(context: GspDefinitionContext): DefinitionTarget[] {
 	const lines = context.documentText.split('\n');
 	const lineText = lines[context.line] ?? '';

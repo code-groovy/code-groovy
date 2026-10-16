@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ClassIndex } from '../groovy/class_index';
 import { resolveGradleProjectRoot } from '../groovy/classpath_resolver';
 import { LinkArgHit, resolveControllerActionDefinitions } from './controller_action_navigation_logic';
-import { listEmbeddedLinkArgs } from './gsp_definition_logic';
+import { controllerActionLinkSpans, listEmbeddedLinkArgs } from './gsp_definition_logic';
 import {
 	findOpenTagBefore,
 	listResourceAttributeValues,
@@ -72,7 +72,8 @@ export class GspResourceLinkProvider implements vscode.DocumentLinkProvider {
 	}
 
 	private controllerActionLinks(document: vscode.TextDocument, workspaceRoot: string): vscode.DocumentLink[] {
-		return listEmbeddedLinkArgs(document.getText()).map(({ start, end, hit }) => new ControllerActionLink(
+		const text = document.getText();
+		return controllerActionLinkSpans(text, listEmbeddedLinkArgs(text)).map(({ start, end, hit }) => new ControllerActionLink(
 			new vscode.Range(document.positionAt(start), document.positionAt(end)),
 			hit,
 			document.uri.fsPath,
