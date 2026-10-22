@@ -51,7 +51,7 @@ export function activate(context: vscode.ExtensionContext) {
       // Full-range underline + click for template=/src=/url= (not just one path segment).
       vscode.languages.registerDocumentLinkProvider(
         { language: 'gsp' },
-        new GspResourceLinkProvider()
+        new GspResourceLinkProvider(classIndex)
       )
     );
     void workspaceContainsGroovy().then(hasGroovy => {

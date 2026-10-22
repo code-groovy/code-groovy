@@ -7,6 +7,13 @@ import {
 	resolveGspResourcePath
 } from './gsp_resource_path_logic';
 import { ProjectTagLibTag, tagMatchesReceiver } from './taglib_parser';
+import {
+	ControllerActionContext,
+	findGroovyLinkArgAt,
+	findGspTagLinkArgAt,
+	LinkArgHit,
+	resolveControllerActionDefinitions
+} from './controller_action_navigation_logic';
 
 export interface GspDefinitionContext {
 	documentText: string;
@@ -20,6 +27,13 @@ export interface GspDefinitionContext {
 	artifactIndex: GrailsArtifactIndex;
 }
 
+export interface EmbeddedLinkArg {
+	start: number;
+	end: number;
+	hit: LinkArgHit;
+}
+
+const EMBEDDED_LINK_KEY_RE = /\b(?:controller|action|view)\s*:\s*(["'])/g;
 const TAG_AT_RE = /<\/?([A-Za-z_]\w*):([A-Za-z_]\w*)/g;
 const TAGLIB_CALL_RE = /\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b/g;
 /** Built-in Grails/Asset namespaces that are TagLib calls, not bean.method. */
@@ -121,6 +135,62 @@ function findRegionContaining(
 	return undefined;
 }
 
+export function listEmbeddedLinkArgs(documentText: string): EmbeddedLinkArg[] {
+	const args: EmbeddedLinkArg[] = [];
+	EMBEDDED_LINK_KEY_RE.lastIndex = 0;
+	let match: RegExpExecArray | null;
+	while ((match = EMBEDDED_LINK_KEY_RE.exec(documentText)) !== null) {
+		const valueOffset = match.index + match[0].length;
+		const embedded = findEmbeddedGroovyAtOffset(documentText, valueOffset);
+		const hit = embedded ? findGroovyLinkArgAt(embedded.text, embedded.localOffset) : undefined;
+		if (embedded && hit) {
+			const contentStart = valueOffset - embedded.localOffset;
+			args.push({ start: contentStart + hit.arg.valueStart, end: contentStart + hit.arg.valueEnd, hit });
+		}
+	}
+	return args;
+}
+
+const HTML_ATTR_OPEN_RE = /[\w:-]+\s*=\s*$/;
+
+/**
+ * `href="${createLink(controller: "bill")}"` ends the HTML attribute at the Groovy quote,
+ * so the built-in link is the file `${createLink(controller: `. Include that quote in the
+ * value link: the ranges touch, the file link is dropped, and `createLink` stays plain text.
+ */
+export function controllerActionLinkSpans(text: string, args: EmbeddedLinkArg[]): EmbeddedLinkArg[] {
+	const covered = new Set<number>();
+	return args.map((arg, index) => {
+		const quoteIndex = arg.start - 1;
+		const htmlValueStart = truncatedHtmlAttributeValueStart(text, quoteIndex);
+		if (htmlValueStart === undefined || covered.has(htmlValueStart)) {
+			return arg;
+		}
+		const earlierArgInside = args.slice(0, index).some(other => other.start >= htmlValueStart && other.start < arg.start);
+		if (earlierArgInside) {
+			return arg;
+		}
+		covered.add(htmlValueStart);
+		return { ...arg, start: quoteIndex };
+	});
+}
+
+function truncatedHtmlAttributeValueStart(text: string, closingQuoteIndex: number): number | undefined {
+	const quote = text[closingQuoteIndex];
+	if ((quote !== '"' && quote !== '\'') || closingQuoteIndex < 0) {
+		return undefined;
+	}
+	const open = text.lastIndexOf(quote, closingQuoteIndex - 1);
+	if (open < 0 || !HTML_ATTR_OPEN_RE.test(text.slice(Math.max(0, open - 80), open))) {
+		return undefined;
+	}
+	const value = text.slice(open + 1, closingQuoteIndex);
+	if (!value.includes('${') || value.includes('}')) {
+		return undefined;
+	}
+	return open + 1;
+}
+
 export function resolveGspDefinitions(context: GspDefinitionContext): DefinitionTarget[] {
 	const lines = context.documentText.split('\n');
 	const lineText = lines[context.line] ?? '';
@@ -140,6 +210,12 @@ export function resolveGspDefinitions(context: GspDefinitionContext): Definition
 		}
 	}
 
+	const offset = offsetAt(lines, context.line, context.character);
+	const tagLink = findGspTagLinkArgAt(context.documentText, offset);
+	if (tagLink) {
+		return resolveControllerActionDefinitions(tagLink, controllerActionContext(context));
+	}
+
 	const tag = findTagAtPosition(lineText, context.character);
 	if (tag) {
 		// XML-style <g:createLink> / <demoUI:x>. Core g: tags with no project TagLib → no target
@@ -147,10 +223,14 @@ export function resolveGspDefinitions(context: GspDefinitionContext): Definition
 		return resolveProjectTag(context.tags, tag.namespace, tag.method);
 	}
 
-	const offset = offsetAt(lines, context.line, context.character);
 	const embedded = findEmbeddedGroovyAtOffset(context.documentText, offset);
 	if (!embedded) {
 		return [];
+	}
+
+	const embeddedLink = findGroovyLinkArgAt(embedded.text, embedded.localOffset);
+	if (embeddedLink) {
+		return resolveControllerActionDefinitions(embeddedLink, controllerActionContext(context));
 	}
 
 	const tagLibCall = findTagLibCallAtPosition(embedded.text, embedded.localOffset);
@@ -181,6 +261,14 @@ export function resolveGspDefinitions(context: GspDefinitionContext): Definition
 		classStore: context.classStore,
 		artifactIndex: context.artifactIndex
 	});
+}
+
+function controllerActionContext(context: GspDefinitionContext): ControllerActionContext {
+	return {
+		sourcePath: context.sourcePath,
+		workspaceRoot: context.workspaceRoot,
+		findEntries: className => context.artifactIndex.findAllByClassName(className)
+	};
 }
 
 function offsetAt(lines: string[], line: number, character: number): number {

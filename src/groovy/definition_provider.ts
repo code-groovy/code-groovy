@@ -5,8 +5,9 @@ import { resolveDefinitions } from './definition_resolver';
 import { resolveGradleProjectRoot } from './classpath_resolver';
 import { resolveGspDefinitions } from '../gsp/gsp_definition_logic';
 import { resolveGroovyTagLibDefinitions } from '../gsp/groovy_taglib_navigation_logic';
+import { findGroovyLinkArgAt, mayContainLinkArg, resolveControllerActionDefinitions } from '../gsp/controller_action_navigation_logic';
 import { ProjectTagLibTag } from '../gsp/taglib_parser';
-import { toVscodeLocation, wordScanner } from './usage_locations';
+import { propertyScanner, toVscodeLocation, wordScanner } from './usage_locations';
 import { CallSiteIndexStore } from './call_site_index_store';
 import { collectUsageLocations, excludePosition, findDeclarationTarget, resolveUsages, UsageHierarchy } from './usage_lookup_logic';
 import { isInsideComment, isInsideDocLink } from './text_scan_logic';
@@ -51,6 +52,17 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
 			return undefined;
 		}
 
+		if (mayContainLinkArg(document.lineAt(position.line).text)) {
+			const linkArg = findGroovyLinkArgAt(document.getText(), document.offsetAt(position));
+			if (linkArg) {
+				return toLocations(resolveControllerActionDefinitions(linkArg, {
+					sourcePath: document.uri.fsPath,
+					workspaceRoot,
+					findEntries: className => this.artifactIndex.findAllByClassName(className)
+				}));
+			}
+		}
+
 		const wordRange = document.getWordRangeAtPosition(position, /[A-Za-z_]\w*/);
 		const tagLibTargets = resolveGroovyTagLibDefinitions({
 			documentText: document.getText(),
@@ -87,7 +99,7 @@ export class DefinitionProvider implements vscode.DefinitionProvider {
 		}
 
 		const resolution = resolveUsages(target, this.callSiteIndex, 'navigate', this.hierarchy);
-		const usages = (await collectUsageLocations(target, resolution, 'navigate', word, wordScanner(token), wordPosition)).map(toVscodeLocation);
+		const usages = (await collectUsageLocations(target, resolution, 'navigate', word, wordScanner(token), wordPosition, propertyScanner(token))).map(toVscodeLocation);
 		if (usages.length === 0) {
 			return undefined;
 		}
