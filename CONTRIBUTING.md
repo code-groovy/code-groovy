@@ -10,7 +10,7 @@ Thanks for your interest in improving Groovy, Grails and GSP support in VS Code 
 
 ## Development setup
 
-Requirements: Node.js 24 or later, and VS Code or Cursor.
+Requirements: Node.js 24 or later, a JDK (to compile the Groovy diagnostics process), and VS Code or Cursor.
 
 ```bash
 git clone https://github.com/<your-user>/code-groovy.git

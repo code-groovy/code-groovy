@@ -29,6 +29,11 @@ jobs:
           node-version: 24
           cache: npm
 
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 11
+
       - name: Read version
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
