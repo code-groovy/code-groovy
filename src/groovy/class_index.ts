@@ -14,7 +14,7 @@ import { listClassFqnsFromJar } from './jar_class_scanner';
 import { MethodCompletionProvider } from './method_completion_provider';
 import { RenameProvider } from './rename_provider';
 import { isExcludedRelativePath } from './source_exclusion';
-import { discoverSourceFiles, invalidateSourceFiles } from './source_file_discovery';
+import { createWorkspaceWorktreeFilter, discoverSourceFiles, invalidateSourceFiles } from './source_file_discovery';
 import { planSourceRefresh } from './source_refresh_logic';
 import { GroovyTagLibLinkProvider } from '../gsp/groovy_taglib_link_provider';
 import { ProjectTagLibTag } from '../gsp/taglib_parser';
@@ -188,7 +188,8 @@ export class ClassIndex implements vscode.Disposable {
 	}
 
 	private scheduleSourceRefresh(uri: vscode.Uri, filesAddedOrRemoved: boolean): void {
-		if (isExcludedRelativePath(vscode.workspace.asRelativePath(uri, false))) {
+		const insideNestedWorktree = createWorkspaceWorktreeFilter();
+		if (isExcludedRelativePath(vscode.workspace.asRelativePath(uri, false)) || insideNestedWorktree(uri.fsPath)) {
 			return;
 		}
 		this.changedSources.add(uri.fsPath);

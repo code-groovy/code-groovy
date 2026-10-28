@@ -64,6 +64,23 @@ suite('grails_module_detector', () => {
 		}
 	});
 
+	test('skips linked worktrees nested in a source folder', async () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), 'code-groovy-nested-worktree-'));
+		try {
+			writeFile(path.join(root, 'services', 'Widget.groovy'), 'class Widget {}\n');
+			writeFile(path.join(root, 'copy', '.git'), 'gitdir: /work/app/.git/worktrees/copy\n');
+			writeFile(path.join(root, 'copy', 'services', 'Widget.groovy'), 'class Widget {}\n');
+			writeFile(path.join(root, 'shared', '.git'), 'gitdir: ../.git/modules/shared\n');
+			writeFile(path.join(root, 'shared', 'Helper.groovy'), 'class Helper {}\n');
+
+			const files = (await collectSourceFilesFromDirectory(root)).map(file => path.relative(root, file).split(path.sep).join('/'));
+
+			assert.deepStrictEqual(files, ['services/Widget.groovy', 'shared/Helper.groovy']);
+		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	test('finds monorepo root when workspace folder is a submodule', () => {
 		const root = createFixtureMonorepo();
 		try {
