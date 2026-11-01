@@ -4,6 +4,8 @@ All notable changes to the "code-groovy" extension will be documented in this fi
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 ## [Unreleased]
+- Add `codeGroovy.gradle.projectDir` to select a Gradle project directory for dependency indexing, including builds nested inside the workspace; setting changes refresh the dependency index automatically.
+- Index Gradle test compile dependencies alongside main dependencies so test-only types such as Spock's `Specification` are available for auto-import and navigation.
 
 ## [0.4.0] - 2026-10-19
 - Ctrl+Click / Cmd+Click on the `controller` or `action` value inside `href="${ createLink(controller: "bill", action: "list") }"` opens that target; a Groovy string that uses the same quote as the HTML attribute was ending the attribute early and underlining `${ createLink` as a file, and that prefix is no longer a link

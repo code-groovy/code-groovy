@@ -44,6 +44,7 @@ Groovy, Grails and GSP language support for Visual Studio Code and Cursor.
 ### Workspace indexing
 
 - Indexes the workspace when the window opens (sources, then Gradle/Maven classpath). Grails multi-module layouts are used for go-to-definition fallbacks.
+- Gradle dependency indexing includes main and test compile classpaths (including Spock). For a build in a subdirectory, set `codeGroovy.gradle.projectDir` to its workspace-relative path, for example `"app"` or `"services/backend"`. A Gradle Wrapper must be available in that directory or an ancestor. Changes to this setting automatically refresh the dependency index.
 - Progress is reported in the status bar (percentage, current file or JAR, final counts) and in a dedicated **Code Groovy Index** output channel.
 
 ### Debug
@@ -54,6 +55,7 @@ Groovy, Grails and GSP language support for Visual Studio Code and Cursor.
 
 | Command | ID | Keybinding |
 | --- | --- | --- |
+| `codeGroovy.gradle.projectDir` | `""` | Gradle project directory for dependency indexing, relative to the workspace folder or absolute. Empty uses the existing workspace/ancestor Wrapper detection. |
 | Debug Groovy / Grails Application | `cgroovy.debugApp` | — |
 | Organize imports | `cgroovy.organizeImports` | `Cmd+Shift+O` / `Ctrl+Shift+O` |
 | Organize dependences | `cgroovy.organizeDependences` | `Cmd+Shift+D` / `Ctrl+Shift+D` |

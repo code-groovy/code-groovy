@@ -124,6 +124,9 @@ export class ClassIndex implements vscode.Disposable {
 		sourceWatcher.onDidDelete(uri => this.scheduleSourceRefresh(uri, true));
 		this.disposables.push(sourceWatcher);
 		this.disposables.push(vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('codeGroovy.gradle.projectDir')) {
+				this.scheduleClasspathRefresh();
+			}
 			if (event.affectsConfiguration('codeGroovy.modules') || event.affectsConfiguration('codeGroovy.index.maxSourceFiles')) {
 				invalidateSourceFiles();
 				this.refreshSource({ showProgress: false }).catch(error => this.logRefreshError('source', error));
@@ -308,14 +311,16 @@ export class ClassIndex implements vscode.Disposable {
 		const showProgress = options.showProgress ?? false;
 		const forceClasspath = options.forceClasspath ?? false;
 		const folderRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-		const root = folderRoot ? resolveGradleProjectRoot(folderRoot) : undefined;
-		if (!root || !context) {
+		if (!folderRoot || !context) {
 			if (showProgress) {
 				this.finalizeStatus();
 			}
 			return;
 		}
 
+		const projectDir = vscode.workspace.getConfiguration('codeGroovy', vscode.Uri.file(folderRoot))
+			.get<string>('gradle.projectDir', '');
+		const root = resolveGradleProjectRoot(folderRoot, projectDir);
 		const hash = hashWorkspaceBuildFiles(root);
 		const cached = context.workspaceState.get<CachedClasspath>(CACHE_KEY);
 		if (!forceClasspath && cached?.hash === hash && cached.types?.length) {
@@ -324,7 +329,7 @@ export class ClassIndex implements vscode.Disposable {
 			if (cached.jars?.length) {
 				this.lastClasspathJars = cached.jars;
 			} else {
-				const resolution = await resolveProjectClasspath(root);
+				const resolution = await resolveProjectClasspath(folderRoot, undefined, projectDir);
 				this.lastClasspathJars = resolution.jars;
 				await context.workspaceState.update(CACHE_KEY, {
 					hash: cached.hash,
@@ -347,7 +352,7 @@ export class ClassIndex implements vscode.Disposable {
 			this.statusBar?.beginClasspathResolve('Gradle/Maven');
 		}
 
-		const resolution = await resolveProjectClasspath(root);
+		const resolution = await resolveProjectClasspath(folderRoot, undefined, projectDir);
 		this.lastClasspathTool = resolution.tool;
 		this.lastClasspathWarning = resolution.warning;
 

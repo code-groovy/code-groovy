@@ -12,20 +12,25 @@ export interface ClasspathResolution {
 
 const GRADLE_INIT_SCRIPT = `
 def codeGroovyPrintClasspath = { project ->
-  def configs = ['compileClasspath', 'runtimeClasspath', 'compile', 'runtime']
-  def found = false
-  configs.each { name ->
-    if (found) { return }
-    def cfg = project.configurations.findByName(name)
-    if (cfg == null) { return }
-    try {
-      cfg.files.each { file ->
-        if (file.name.endsWith('.jar')) {
-          println "CODE_GROOVY_CP:" + file.absolutePath
+  def configGroups = [
+    ['compileClasspath', 'runtimeClasspath', 'compile', 'runtime'],
+    ['testCompileClasspath', 'testRuntimeClasspath', 'testCompile', 'testRuntime']
+  ]
+  configGroups.each { configs ->
+    def found = false
+    configs.each { name ->
+      if (found) { return }
+      def cfg = project.configurations.findByName(name)
+      if (cfg == null) { return }
+      try {
+        cfg.files.each { file ->
+          if (file.name.endsWith('.jar')) {
+            println "CODE_GROOVY_CP:" + file.absolutePath
+          }
         }
-      }
-      found = true
-    } catch (Throwable ignored) { }
+        found = true
+      } catch (Throwable ignored) { }
+    }
   }
 }
 
@@ -70,6 +75,8 @@ export function parseClasspathLines(output: string): string[] {
 
 export function hashWorkspaceBuildFiles(workspaceRoot: string): string {
 	const hash = createHash('sha256');
+	hash.update(GRADLE_INIT_SCRIPT);
+	hash.update(path.resolve(workspaceRoot));
 	for (const file of collectBuildInputFiles(workspaceRoot)) {
 		hash.update(file);
 		try {
@@ -101,20 +108,30 @@ export function prioritizeJars(jars: string[], limit = 300): string[] {
 
 export async function resolveProjectClasspath(
 	workspaceRoot: string,
-	runCommand: typeof runProcess = runProcess
+	runCommand: typeof runProcess = runProcess,
+	projectDir = ''
 ): Promise<ClasspathResolution> {
 	const workspaceJars = collectWorkspaceJars(workspaceRoot);
-	const gradleProjectRoot = resolveGradleProjectRoot(workspaceRoot);
-	const gradlew = findGradlew(workspaceRoot);
-	if (gradlew) {
-		try {
-			const jars = await resolveGradleClasspath(gradleProjectRoot, gradlew, runCommand);
-			const merged = prioritizeJars(uniqueExisting([...jars, ...workspaceJars]));
-			return { jars: merged, tool: 'gradle' };
-		} catch (error) {
+	const gradleProjectRoot = resolveGradleProjectRoot(workspaceRoot, projectDir);
+	const gradlew = findGradlew(gradleProjectRoot);
+	if (projectDir.trim()) {
+		if (!fs.existsSync(gradleProjectRoot) || !fs.statSync(gradleProjectRoot).isDirectory() || !gradlew) {
 			return {
 				jars: prioritizeJars(workspaceJars),
 				tool: workspaceJars.length ? 'workspace' : 'none',
+				warning: `Configured Gradle project directory has no Gradle Wrapper or is not a directory: ${gradleProjectRoot}`
+			};
+		}
+	}
+	if (gradlew) {
+		const localJars = uniqueExisting([...workspaceJars, ...collectWorkspaceJars(gradleProjectRoot)]);
+		try {
+			const jars = await resolveGradleClasspath(gradleProjectRoot, gradlew, runCommand);
+			return { jars: prioritizeJars(uniqueExisting([...jars, ...localJars])), tool: 'gradle' };
+		} catch (error) {
+			return {
+				jars: prioritizeJars(localJars),
+				tool: localJars.length ? 'workspace' : 'none',
 				warning: `Gradle classpath failed: ${error instanceof Error ? error.message : String(error)}`
 			};
 		}
@@ -254,7 +271,10 @@ function findGradlew(workspaceRoot: string): string | undefined {
 	return undefined;
 }
 
-export function resolveGradleProjectRoot(workspacePath: string): string {
+export function resolveGradleProjectRoot(workspacePath: string, projectDir = ''): string {
+	if (projectDir.trim()) {
+		return path.resolve(workspacePath, projectDir.trim());
+	}
 	const gradlew = findGradlew(workspacePath);
 	return gradlew ? path.dirname(gradlew) : workspacePath;
 }
@@ -304,7 +324,7 @@ function collectBuildInputFiles(workspaceRoot: string): string[] {
 			if (!entry.isDirectory() || entry.name.startsWith('.')) {
 				continue;
 			}
-			for (const name of ['build.gradle', 'build.gradle.kts', 'pom.xml']) {
+			for (const name of names) {
 				const full = path.join(workspaceRoot, entry.name, name);
 				if (fs.existsSync(full)) {
 					files.push(full);
