@@ -81,6 +81,12 @@
         "configuration": {
             "title": "Code Groovy",
             "properties": {
+                "codeGroovy.gradle.projectDir": {
+                    "type": "string",
+                    "default": "",
+                    "scope": "resource",
+                    "markdownDescription": "Gradle project directory for dependency indexing, relative to the workspace folder (for example, `app` or `services/backend`) or an absolute path. Leave empty to use the existing workspace/ancestor Gradle Wrapper detection. Includes main and test dependencies."
+                },
                 "codeGroovy.index.maxSourceFiles": {
                     "type": "number",
                     "default": 0,
